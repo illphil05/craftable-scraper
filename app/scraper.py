@@ -30,18 +30,10 @@ DEEP_PAGE_TIMEOUT = 15000
 
 
 async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000, debug: bool = False, deep: bool = False) -> dict:
-    """Scrape a URL with Playwright and return parsed job listings.
-
-    Args:
-        url: The careers page URL to scrape
-        company_name: Optional company name to attach to each job
-        timeout: Page load timeout in milliseconds
-
-    Returns:
-        dict with keys: jobs, company_name, url, method, jobs_count, error
-    """
+    """Scrape a URL with Playwright and return parsed job listings."""
     parser = get_parser(url)
     parser_name = get_parser_name(url)
+    is_ukg = "ultipro.com" in url.lower()
 
     try:
         async with async_playwright() as p:
@@ -55,18 +47,29 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
                 viewport={'width': 1366, 'height': 768},
             )
             page = await context.new_page()
-
-            # Hide webdriver flag to avoid bot detection
             await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            # UKG: set up XHR response capture BEFORE navigation
+            ukg_api_responses = []
+            if is_ukg:
+                async def capture_response(response):
+                    try:
+                        ct = response.headers.get("content-type", "")
+                        if "json" in ct or "opportunity" in response.url.lower() or "search" in response.url.lower():
+                            body = await response.text()
+                            if body and len(body) > 50:
+                                ukg_api_responses.append(body)
+                    except Exception:
+                        pass
+                page.on("response", capture_response)
 
             # Go to URL — networkidle waits for no network for 500ms
             try:
                 await page.goto(url, wait_until='networkidle', timeout=timeout)
             except Exception:
-                # Fall back to domcontentloaded if networkidle times out
                 await page.goto(url, wait_until='domcontentloaded', timeout=timeout)
 
-            # Wait for any ATS-specific selector to appear (gives React/Angular time to render)
+            # Wait for any ATS-specific selector
             selectors = _selectors_for(url)
             for sel in selectors:
                 try:
@@ -83,29 +86,34 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             except Exception:
                 pass
 
-            # Extra wait for UKG — Knockout.js hydration is slow
-            if "ultipro.com" in url.lower():
-                await page.wait_for_timeout(5000)
-                # Scroll again to trigger lazy load
-                try:
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await page.wait_for_timeout(2000)
-                    await page.evaluate("window.scrollTo(0, 0)")
-                    await page.wait_for_timeout(2000)
-                except Exception:
-                    pass
-
             # Final settle wait
             await page.wait_for_timeout(2000)
 
             html = await page.content()
 
-            # Fallback: try getting full DOM via JS (catches shadow DOM / web components)
-            if not html or len(html) < 1000:
+            # UKG: extract shadow DOM + append captured API responses
+            if is_ukg:
+                await page.wait_for_timeout(3000)
                 try:
-                    html = await page.evaluate("document.documentElement.outerHTML")
+                    shadow_html = await page.evaluate("""() => {
+                        const parts = [];
+                        function walk(root) {
+                            root.querySelectorAll('*').forEach(el => {
+                                if (el.shadowRoot) {
+                                    parts.push(el.shadowRoot.innerHTML);
+                                    walk(el.shadowRoot);
+                                }
+                            });
+                        }
+                        walk(document);
+                        return parts.join('\\n');
+                    }""")
+                    if shadow_html and len(shadow_html) > 100:
+                        html = html + "\n" + shadow_html
                 except Exception:
                     pass
+                for resp in ukg_api_responses:
+                    html = html + "\n" + resp
 
             jobs = parser(html, url, company_name)
 
@@ -124,7 +132,7 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
                             if enrichment.get(key) is not None:
                                 job[key] = enrichment[key]
                     except Exception:
-                        pass  # leave enrichment fields as None
+                        pass
 
             await browser.close()
 
