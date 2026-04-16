@@ -4,7 +4,7 @@ from playwright.async_api import async_playwright
 from app.parsers import get_parser, get_parser_name
 
 
-async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000) -> dict:
+async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000, debug: bool = False) -> dict:
     """Scrape a URL with Playwright and return parsed job listings.
 
     Args:
@@ -45,7 +45,7 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
 
         jobs = parser(html, url, company_name)
 
-        return {
+        result = {
             "jobs": jobs,
             "company_name": jobs[0]["company_name"] if jobs and jobs[0].get("company_name") else (company_name or ""),
             "url": url,
@@ -53,6 +53,10 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             "jobs_count": len(jobs),
             "error": None,
         }
+        if debug:
+            result["html_sample"] = html[:8000]
+            result["html_size"] = len(html)
+        return result
     except Exception as e:
         return {
             "jobs": [],

@@ -21,6 +21,7 @@ class ScrapeRequest(BaseModel):
     url: str
     company_name: str | None = None
     timeout: int = 30000
+    debug: bool = False
 
 
 class JobResult(BaseModel):
@@ -40,6 +41,8 @@ class ScrapeResponse(BaseModel):
     jobs_count: int
     elapsed_ms: int
     error: str | None = None
+    html_sample: str | None = None
+    html_size: int | None = None
 
 
 @app.get("/health")
@@ -61,7 +64,7 @@ async def scrape(req: ScrapeRequest, x_api_key: str = Header(default="")):
         raise HTTPException(status_code=400, detail="Invalid URL")
 
     start = time.time()
-    result = await scrape_url(req.url, req.company_name, req.timeout)
+    result = await scrape_url(req.url, req.company_name, req.timeout, debug=req.debug)
     elapsed = int((time.time() - start) * 1000)
 
     return ScrapeResponse(
@@ -72,4 +75,6 @@ async def scrape(req: ScrapeRequest, x_api_key: str = Header(default="")):
         jobs_count=result["jobs_count"],
         elapsed_ms=elapsed,
         error=result["error"],
+        html_sample=result.get("html_sample"),
+        html_size=result.get("html_size"),
     )
