@@ -47,13 +47,17 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+                      '--disable-blink-features=AutomationControlled']
             )
             context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 viewport={'width': 1366, 'height': 768},
             )
             page = await context.new_page()
+
+            # Hide webdriver flag to avoid bot detection
+            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
             # Go to URL — networkidle waits for no network for 500ms
             try:
@@ -79,10 +83,29 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             except Exception:
                 pass
 
+            # Extra wait for UKG — Knockout.js hydration is slow
+            if "ultipro.com" in url.lower():
+                await page.wait_for_timeout(5000)
+                # Scroll again to trigger lazy load
+                try:
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await page.wait_for_timeout(2000)
+                    await page.evaluate("window.scrollTo(0, 0)")
+                    await page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
             # Final settle wait
             await page.wait_for_timeout(2000)
 
             html = await page.content()
+
+            # Fallback: try getting full DOM via JS (catches shadow DOM / web components)
+            if not html or len(html) < 1000:
+                try:
+                    html = await page.evaluate("document.documentElement.outerHTML")
+                except Exception:
+                    pass
 
             jobs = parser(html, url, company_name)
 
