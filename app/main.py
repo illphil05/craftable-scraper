@@ -1,20 +1,42 @@
 """Craftable Scraper Service — FastAPI app.
 
 Endpoints:
-  GET  /health  - liveness check
-  POST /scrape  - scrape a careers page (requires X-API-Key header)
+  GET  /         - HTML UI (login or scraper) gated by SITE_PASSWORD cookie
+  POST /login    - validate password, set session cookie
+  POST /logout   - clear session cookie
+  GET  /health   - liveness check
+  GET  /api      - JSON service info
+  POST /scrape   - scrape a careers page (X-API-Key header OR session cookie)
 """
+import hashlib
 import os
 import time
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Form, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.scraper import scrape_url
+from app.ui import login_page, scraper_page
 
-app = FastAPI(title="Craftable Scraper Service", version="1.0.0")
+app = FastAPI(title="Craftable Scraper Service", version="1.1.0")
 
 API_KEY = os.environ.get("SCRAPER_API_KEY", "craftable-scraper-2026")
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "Miles2026")
+SESSION_COOKIE = "scraper_session"
+SESSION_VALUE = hashlib.sha256(f"{SITE_PASSWORD}:scraper-ui".encode()).hexdigest()
+
+
+def _is_authed(request: Request) -> bool:
+    return request.cookies.get(SESSION_COOKIE) == SESSION_VALUE
+
+
+def _require_auth(request: Request, x_api_key: str) -> None:
+    if x_api_key and x_api_key == API_KEY:
+        return
+    if _is_authed(request):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 class ScrapeRequest(BaseModel):
@@ -45,20 +67,46 @@ class ScrapeResponse(BaseModel):
     html_size: int | None = None
 
 
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request, error: int = 0):
+    if _is_authed(request):
+        return HTMLResponse(scraper_page())
+    return HTMLResponse(login_page(error=bool(error)))
+
+
+@app.post("/login")
+async def login(password: str = Form(...)):
+    if password != SITE_PASSWORD:
+        return RedirectResponse(url="/?error=1", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE, SESSION_VALUE,
+        httponly=True, secure=True, samesite="lax",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+    )
+    return response
+
+
+@app.post("/logout")
+async def logout():
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "craftable-scraper", "version": "1.0.0"}
+    return {"status": "ok", "service": "craftable-scraper", "version": "1.1.0"}
 
 
-@app.get("/")
-async def root():
-    return {"service": "craftable-scraper", "endpoints": ["/health", "/scrape"]}
+@app.get("/api")
+async def api_info():
+    return {"service": "craftable-scraper", "endpoints": ["/health", "/scrape", "/docs"]}
 
 
 @app.post("/scrape", response_model=ScrapeResponse)
-async def scrape(req: ScrapeRequest, x_api_key: str = Header(default="")):
-    if API_KEY and x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+async def scrape(req: ScrapeRequest, request: Request, x_api_key: str = Header(default="")):
+    _require_auth(request, x_api_key)
 
     if not req.url or not req.url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="Invalid URL")

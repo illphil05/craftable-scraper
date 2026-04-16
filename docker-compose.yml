@@ -6,6 +6,7 @@ services:
       - "3010"
     environment:
       - SCRAPER_API_KEY=craftable-scraper-2026
+      - SITE_PASSWORD=Miles2026
     restart: unless-stopped
     networks:
       - default
