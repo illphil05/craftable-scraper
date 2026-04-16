@@ -54,7 +54,7 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             "error": None,
         }
         if debug:
-            result["html_sample"] = html[:8000]
+            result["html_sample"] = html[:60000]
             result["html_size"] = len(html)
         return result
     except Exception as e:
