@@ -85,9 +85,9 @@ def _clean(html_fragment: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     # HTML entity decode (basic)
     text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"').replace('&nbsp;', ' ')
-    # Strip Greenhouse badge suffixes (often concatenated without space, e.g. "Data ScientistNew")
-    # Match capitalized badge words at end, preceded by lowercase letter (end of real word)
-    text = re.sub(r'(?<=[a-z])(New|Featured|Recently Posted)$', '', text).strip()
+    # Strip Greenhouse badge suffixes (often concatenated without space, e.g. "Data ScientistNew", "L2New")
+    # Match capitalized badge words at end, preceded by lowercase letter or digit
+    text = re.sub(r'(?<=[a-z0-9])(New|Featured|Recently Posted)$', '', text).strip()
     text = re.sub(r'\s+(New|Featured|Recently Posted)\s*$', '', text, flags=re.IGNORECASE).strip()
     return text
 
