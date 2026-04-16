@@ -13,13 +13,13 @@ JOB_KEYWORDS = re.compile(
 )
 
 NAV_PATTERN = re.compile(
-    r'^(home|about|contact|login|sign|menu|close|back|next|prev|search|filter|sort|'
+    r'^(home|about|contact|login|sign\s*(in|up)?|menu|close|back|next|prev|search|filter|sort|'
     r'page|view|show|load|more|all|see|find|español|français|english|deutsch|'
-    r'jobs?\s+by|recently|featured|browse|categories|locations|departments|apply|'
-    r'remote\s+jobs?)$', re.IGNORECASE
+    r'jobs?\s+(by|search)|recently\s+posted|featured|browse|categories|locations?|departments?|apply|'
+    r'remote\s+jobs?|find\s+jobs?|filter\s+results?|reset|clear)\b', re.IGNORECASE
 )
 
-JOB_URL_PATTERN = re.compile(r'/(job|position|opening|career|requisition|apply|posting)', re.IGNORECASE)
+JOB_URL_PATTERN = re.compile(r'/(jobs?|positions?|openings?|careers?|requisitions?|posting|apply)/[^/]+/?$|/(jobs?|positions?|openings?|careers?|requisitions?|posting)/\d+', re.IGNORECASE)
 
 
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:

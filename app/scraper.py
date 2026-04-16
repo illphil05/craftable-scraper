@@ -3,6 +3,24 @@ from playwright.async_api import async_playwright
 
 from app.parsers import get_parser, get_parser_name
 
+# ATS-specific selectors to wait for after page load
+WAIT_SELECTORS = {
+    "paylocity.com": [".job-listing-card", "a[href*='Details']", ".job-title"],
+    "icims.com": [".iCIMS_JobsTable", "a[href*='job']"],
+    "myworkday": ["[data-automation-id='jobTitle']", "a[data-automation-id]"],
+    "workdayjobs": ["[data-automation-id='jobTitle']", "a[data-automation-id]"],
+    "greenhouse.io": [".job-post", ".opening", "tr.job-post"],
+    "lever.co": [".posting-title", ".posting"],
+}
+
+
+def _selectors_for(url: str) -> list[str]:
+    url_lower = url.lower()
+    for pattern, selectors in WAIT_SELECTORS.items():
+        if pattern in url_lower:
+            return selectors
+    return []
+
 
 async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000, debug: bool = False) -> dict:
     """Scrape a URL with Playwright and return parsed job listings.
@@ -37,8 +55,25 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
                 # Fall back to domcontentloaded if networkidle times out
                 await page.goto(url, wait_until='domcontentloaded', timeout=timeout)
 
-            # Extra wait for SPA frameworks to render (Angular/React/Vue)
-            await page.wait_for_timeout(3000)
+            # Wait for any ATS-specific selector to appear (gives React/Angular time to render)
+            selectors = _selectors_for(url)
+            for sel in selectors:
+                try:
+                    await page.wait_for_selector(sel, timeout=8000, state='attached')
+                    break
+                except Exception:
+                    continue
+
+            # Scroll to trigger lazy-loaded content
+            try:
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(1500)
+                await page.evaluate("window.scrollTo(0, 0)")
+            except Exception:
+                pass
+
+            # Final settle wait
+            await page.wait_for_timeout(2000)
 
             html = await page.content()
             await browser.close()

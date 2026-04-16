@@ -1,7 +1,11 @@
 """Greenhouse ATS parser.
 
-URL pattern: boards.greenhouse.io/{company}
-Greenhouse uses simple, mostly-static HTML — no JS rendering required, but Playwright still works.
+URL pattern: boards.greenhouse.io/{company} or boards.greenhouse.io/embed/job_board?for={company}
+
+Modern Greenhouse uses React with classes like:
+  - tr.job-post / div.job-post (each job row)
+  - div.opening (legacy)
+  - a[href*='/jobs/'] (job detail links)
 """
 import re
 from urllib.parse import urljoin
@@ -11,7 +15,29 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
 
-    # Greenhouse: <div class="opening"><a href="...">Title</a><span class="location">...</span></div>
+    # Modern Greenhouse: <tr class="job-post"><td><a href="/jobs/123">Title</a><span>Location</span></td></tr>
+    for match in re.finditer(
+        r'<(?:tr|div)[^>]*class="[^"]*job-post[^"]*"[^>]*>(.*?)</(?:tr|div)>',
+        html, re.IGNORECASE | re.DOTALL
+    ):
+        block = match.group(1)
+        link_match = re.search(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL)
+        if not link_match:
+            continue
+        href = link_match.group(1)
+        title = _clean(link_match.group(2))
+        # Try to extract location from a sibling element
+        loc_match = re.search(r'<(?:span|p)[^>]*class="[^"]*location[^"]*"[^>]*>(.*?)<', block, re.IGNORECASE | re.DOTALL)
+        if not loc_match:
+            # Greenhouse often has location in a <p> or <span> after the title
+            loc_match = re.search(r'</a>\s*<(?:span|p)[^>]*>(.*?)<', block, re.DOTALL)
+        location = _clean(loc_match.group(1)) if loc_match else None
+        _add(jobs, seen, title, href, url, company_name, location=location)
+
+    if jobs:
+        return jobs
+
+    # Legacy: <div class="opening"><a href="...">Title</a><span class="location">...</span></div>
     for match in re.finditer(
         r'<div[^>]*class="[^"]*opening[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>(.*?)</div>',
         html, re.IGNORECASE | re.DOTALL
@@ -22,14 +48,16 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         location = _clean(location_match.group(1)) if location_match else None
         _add(jobs, seen, title, href, url, company_name, location=location)
 
-    # Fallback: any links in /jobs/ path
-    if not jobs:
-        for match in re.finditer(
-            r'<a[^>]*href="(/jobs/\d+[^"]*)"[^>]*>(.*?)</a>',
-            html, re.IGNORECASE | re.DOTALL
-        ):
-            href, title_html = match.group(1), match.group(2)
-            _add(jobs, seen, _clean(title_html), href, url, company_name)
+    if jobs:
+        return jobs
+
+    # Fallback: any anchor pointing at /jobs/{id}
+    for match in re.finditer(
+        r'<a[^>]*href="([^"]*/jobs/\d+[^"]*)"[^>]*>(.*?)</a>',
+        html, re.IGNORECASE | re.DOTALL
+    ):
+        href, title_html = match.group(1), match.group(2)
+        _add(jobs, seen, _clean(title_html), href, url, company_name)
 
     return jobs
 
