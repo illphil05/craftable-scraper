@@ -51,14 +51,18 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
 
             # UKG: set up XHR response capture BEFORE navigation
             ukg_api_responses = []
+            ukg_api_urls = []
             if is_ukg:
                 async def capture_response(response):
                     try:
+                        resp_url = response.url.lower()
                         ct = response.headers.get("content-type", "")
-                        if "json" in ct or "opportunity" in response.url.lower() or "search" in response.url.lower():
+                        # Capture JSON responses and any opportunity/search API calls
+                        if "json" in ct or "opportunity" in resp_url or "search" in resp_url or "api" in resp_url:
                             body = await response.text()
                             if body and len(body) > 50:
                                 ukg_api_responses.append(body)
+                                ukg_api_urls.append(response.url[:200])
                     except Exception:
                         pass
                 page.on("response", capture_response)
@@ -147,6 +151,9 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
         if debug:
             result["html_sample"] = html[:60000]
             result["html_size"] = len(html)
+            if is_ukg and ukg_api_urls:
+                result["ukg_api_urls"] = ukg_api_urls
+                result["ukg_api_count"] = len(ukg_api_responses)
         return result
     except Exception as e:
         return {
