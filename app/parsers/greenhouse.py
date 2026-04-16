@@ -82,7 +82,12 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
 
 def _clean(html_fragment: str) -> str:
     text = re.sub(r'<[^>]+>', '', html_fragment).strip()
-    return re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    # HTML entity decode (basic)
+    text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"').replace('&nbsp;', ' ')
+    # Strip Greenhouse "New" badge suffix
+    text = re.sub(r'\s*\b(New|Recently posted|Featured)\s*$', '', text, flags=re.IGNORECASE).strip()
+    return text
 
 
 def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, company_name: str | None, location: str | None = None):
