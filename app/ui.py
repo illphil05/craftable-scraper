@@ -74,7 +74,7 @@ SCRAPER_HTML = """<!DOCTYPE html>
   <!-- Scrape form -->
   <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
     <h2 class="text-lg font-bold text-slate-900 mb-1">Scrape a careers page</h2>
-    <p class="text-sm text-slate-500 mb-4">Paste any ATS URL — Greenhouse, Lever, Paylocity, iCIMS, Workday, or generic.</p>
+    <p class="text-sm text-slate-500 mb-4">Paste any ATS URL — Paylocity, UKG/Ultipro, SmartRecruiters, Greenhouse, Lever, iCIMS, Workday, or generic.</p>
 
     <div class="space-y-3">
       <div>
@@ -95,10 +95,16 @@ SCRAPER_HTML = """<!DOCTYPE html>
             class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
       </div>
-      <label class="flex items-center gap-2 text-sm text-slate-700">
-        <input x-model="debug" type="checkbox" class="rounded border-slate-300">
-        Debug mode (returns HTML sample)
-      </label>
+      <div class="flex items-center gap-4">
+        <label class="flex items-center gap-2 text-sm text-slate-700">
+          <input x-model="deep" type="checkbox" class="rounded border-slate-300">
+          Deep scrape (fetch job details)
+        </label>
+        <label class="flex items-center gap-2 text-sm text-slate-700">
+          <input x-model="debug" type="checkbox" class="rounded border-slate-300">
+          Debug mode
+        </label>
+      </div>
     </div>
 
     <div class="mt-4 flex items-center gap-3">
@@ -179,6 +185,7 @@ function scraperApp() {
     url: '',
     companyName: '',
     timeout: 30000,
+    deep: false,
     debug: false,
     loading: false,
     result: null,
@@ -199,6 +206,7 @@ function scraperApp() {
             url,
             company_name: this.companyName || undefined,
             timeout: this.timeout,
+            deep: this.deep,
             debug: this.debug,
           }),
         });

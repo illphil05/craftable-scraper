@@ -2,6 +2,7 @@
 from playwright.async_api import async_playwright
 
 from app.parsers import get_parser, get_parser_name
+from app.parsers.paylocity_detail import parse_detail as parse_paylocity_detail
 
 # ATS-specific selectors to wait for after page load
 WAIT_SELECTORS = {
@@ -11,7 +12,7 @@ WAIT_SELECTORS = {
     "workdayjobs": ["[data-automation-id='jobTitle']", "a[data-automation-id]"],
     "greenhouse.io": [".job-post", ".opening", "tr.job-post"],
     "lever.co": [".posting-title", ".posting"],
-    "ultipro.com": ["a[href*='OpportunityDetail']", ".opportunity-card", ".opportunity-link"],
+    "ultipro.com": ["div[data-automation='opportunity']", "a[data-automation='job-title']", "a[href*='OpportunityDetail']"],
     "smartrecruiters.com": ["li.opening-job", ".details-title", "a.link--block"],
 }
 
@@ -24,7 +25,11 @@ def _selectors_for(url: str) -> list[str]:
     return []
 
 
-async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000, debug: bool = False) -> dict:
+DEEP_SCRAPE_LIMIT = 50
+DEEP_PAGE_TIMEOUT = 15000
+
+
+async def scrape_url(url: str, company_name: str | None = None, timeout: int = 30000, debug: bool = False, deep: bool = False) -> dict:
     """Scrape a URL with Playwright and return parsed job listings.
 
     Args:
@@ -78,9 +83,27 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             await page.wait_for_timeout(2000)
 
             html = await page.content()
-            await browser.close()
 
-        jobs = parser(html, url, company_name)
+            jobs = parser(html, url, company_name)
+
+            # --- Tier 2: deep scrape detail pages ---
+            if deep and jobs and "paylocity.com" in url.lower():
+                for job in jobs[:DEEP_SCRAPE_LIMIT]:
+                    job_url = job.get("url")
+                    if not job_url:
+                        continue
+                    try:
+                        await page.goto(job_url, wait_until='domcontentloaded', timeout=DEEP_PAGE_TIMEOUT)
+                        await page.wait_for_timeout(1500)
+                        detail_html = await page.content()
+                        enrichment = parse_paylocity_detail(detail_html)
+                        for key in ("description", "requirements", "full_address", "maps_url", "posted_date"):
+                            if enrichment.get(key) is not None:
+                                job[key] = enrichment[key]
+                    except Exception:
+                        pass  # leave enrichment fields as None
+
+            await browser.close()
 
         result = {
             "jobs": jobs,

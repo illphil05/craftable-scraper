@@ -44,6 +44,7 @@ class ScrapeRequest(BaseModel):
     company_name: str | None = None
     timeout: int = 30000
     debug: bool = False
+    deep: bool = False
 
 
 class JobResult(BaseModel):
@@ -53,6 +54,11 @@ class JobResult(BaseModel):
     url: str | None = None
     snippet: str | None = None
     department: str | None = None
+    description: str | None = None
+    requirements: list[str] | None = None
+    full_address: str | None = None
+    maps_url: str | None = None
+    posted_date: str | None = None
 
 
 class ScrapeResponse(BaseModel):
@@ -112,7 +118,7 @@ async def scrape(req: ScrapeRequest, request: Request, x_api_key: str = Header(d
         raise HTTPException(status_code=400, detail="Invalid URL")
 
     start = time.time()
-    result = await scrape_url(req.url, req.company_name, req.timeout, debug=req.debug)
+    result = await scrape_url(req.url, req.company_name, req.timeout, debug=req.debug, deep=req.deep)
     elapsed = int((time.time() - start) * 1000)
 
     return ScrapeResponse(

@@ -1,44 +1,65 @@
 """Paylocity ATS parser.
 
 URL pattern: recruiting.paylocity.com/Recruiting/Jobs/...
-Job cards are rendered in Angular — Playwright needed for dynamic content.
+Job data is hydrated as JSON inside the rendered HTML. We extract each job
+block by anchoring on `"JobId":<int>` and scanning a window of nearby chars
+for the other fields (JobTitle, City, State, HiringDepartment).
 """
 import re
 from urllib.parse import urljoin
+
+
+# Window (chars) to search around each JobId for the other fields.
+# Job objects in the embedded JSON are typically ~500-1500 chars.
+_WINDOW = 2000
+
+_JOB_DETAIL_BASE = "https://recruiting.paylocity.com/Recruiting/Jobs/Details/"
 
 
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
 
-    # Pattern 1: Job cards with Details/Job links and a job-related class
-    matches = re.findall(
-        r'<a[^>]*href="([^"]*(?:Details|Job)[^"]*)"[^>]*class="[^"]*job[^"]*"[^>]*>(.*?)</a>',
-        html, re.IGNORECASE | re.DOTALL
-    )
-    for href, title_html in matches:
-        title = _clean(title_html)
-        _add(jobs, seen, title, href, url, company_name)
+    for m in re.finditer(r'"JobId"\s*:\s*(\d+)', html, re.IGNORECASE):
+        job_id = m.group(1)
+        # Fields for this job appear AFTER JobId in the JSON object;
+        # don't peek backward or we'll grab the previous job's City/State.
+        start = m.end()
+        end = min(len(html), start + _WINDOW)
+        window = html[start:end]
 
-    # Pattern 2: Generic job-title-class elements
-    for match in re.finditer(
-        r'class="[^"]*job[-_]?title[^"]*"[^>]*>(.*?)<',
-        html, re.IGNORECASE | re.DOTALL
-    ):
-        title = _clean(match.group(1))
-        _add(jobs, seen, title, None, url, company_name)
+        title = _find(window, r'"JobTitle"\s*:\s*"([^"]+)"')
+        if not title:
+            continue
 
-    # Pattern 3: Job data in script tags (Angular state hydration)
-    for match in re.finditer(r'"title"\s*:\s*"([^"]{5,120})"', html):
-        title = match.group(1)
-        if not title.startswith(('http', '/', '{', '<')):
-            _add(jobs, seen, title, None, url, company_name)
+        city = _find(window, r'"City"\s*:\s*"([^"]+)"')
+        state = _find(window, r'"State(?:Name)?"\s*:\s*"([^"]+)"')
+        department = _find(window, r'"HiringDepartment"\s*:\s*"([^"]+)"')
 
-    # Pattern 4: jobName/jobTitle JSON keys
-    for match in re.finditer(r'"job(?:Name|Title)"\s*:\s*"([^"]{5,120})"', html):
-        _add(jobs, seen, match.group(1), None, url, company_name)
+        location = _build_location(city, state)
+        job_url = f"{_JOB_DETAIL_BASE}{job_id}"
+
+        _add(jobs, seen, title, job_url, location, department, company_name)
 
     return jobs
+
+
+def _find(text: str, pattern: str) -> str | None:
+    m = re.search(pattern, text, re.IGNORECASE)
+    if not m:
+        return None
+    val = m.group(1).strip()
+    return val or None
+
+
+def _build_location(city: str | None, state: str | None) -> str | None:
+    if city and state:
+        return f"{city}, {state}"
+    if city:
+        return city
+    if state:
+        return state
+    return None
 
 
 def _clean(html_fragment: str) -> str:
@@ -46,19 +67,27 @@ def _clean(html_fragment: str) -> str:
     return re.sub(r'\s+', ' ', text)
 
 
-def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, company_name: str | None):
+def _add(
+    jobs: list,
+    seen: set,
+    title: str,
+    href: str | None,
+    location: str | None,
+    department: str | None,
+    company_name: str | None,
+):
+    title = _clean(title)
     if not title or len(title) < 4 or len(title) > 150:
         return
-    key = title.lower()
+    key = (title.lower(), (location or "").lower())
     if key in seen:
         return
     seen.add(key)
-    full_url = urljoin(base_url, href) if href and not href.startswith('http') else href
     jobs.append({
         "title": title,
         "company_name": company_name or "",
-        "url": full_url,
-        "location": None,
+        "url": href,
+        "location": location,
         "snippet": None,
-        "department": None,
+        "department": department,
     })
