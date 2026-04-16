@@ -1,0 +1,23 @@
+services:
+  scraper:
+    build: .
+    container_name: craftable-scraper
+    expose:
+      - "3010"
+    environment:
+      - SCRAPER_API_KEY=craftable-scraper-2026
+    restart: unless-stopped
+    networks:
+      - default
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.craftable-scraper.rule=Host(`scraper.myrtle.cloud`)"
+      - "traefik.http.routers.craftable-scraper.entrypoints=websecure"
+      - "traefik.http.routers.craftable-scraper.tls.certresolver=letsencrypt"
+      - "traefik.http.services.craftable-scraper.loadbalancer.server.port=3010"
+      - "traefik.docker.network=proxy"
+
+networks:
+  proxy:
+    external: true
