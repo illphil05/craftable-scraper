@@ -15,7 +15,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
 
-    # Modern Greenhouse: <tr class="job-post"><td><a href="/jobs/123">Title</a><span>Location</span></td></tr>
+    # Modern Greenhouse: <tr class="job-post"><td><a href="/jobs/123"><p class="body--medium">Title</p><span class="badge">New</span><p class="body__secondary">Location</p></a></td></tr>
     for match in re.finditer(
         r'<(?:tr|div)[^>]*class="[^"]*job-post[^"]*"[^>]*>(.*?)</(?:tr|div)>',
         html, re.IGNORECASE | re.DOTALL
@@ -25,13 +25,31 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         if not link_match:
             continue
         href = link_match.group(1)
-        title = _clean(link_match.group(2))
-        # Try to extract location from a sibling element
-        loc_match = re.search(r'<(?:span|p)[^>]*class="[^"]*location[^"]*"[^>]*>(.*?)<', block, re.IGNORECASE | re.DOTALL)
-        if not loc_match:
-            # Greenhouse often has location in a <p> or <span> after the title
-            loc_match = re.search(r'</a>\s*<(?:span|p)[^>]*>(.*?)<', block, re.DOTALL)
-        location = _clean(loc_match.group(1)) if loc_match else None
+        link_inner = link_match.group(2)
+
+        # Try to find title in a specific child (p, h2, h3 with "title" or "body--medium" or "name" class)
+        title = None
+        for title_re in [
+            r'<(?:p|h\d|span)[^>]*class="[^"]*(?:body--medium|title|name|posting-name)[^"]*"[^>]*>(.*?)</(?:p|h\d|span)>',
+            r'<p[^>]*>(.*?)</p>',
+            r'<h\d[^>]*>(.*?)</h\d>',
+        ]:
+            tm = re.search(title_re, link_inner, re.IGNORECASE | re.DOTALL)
+            if tm:
+                candidate = _clean(tm.group(1))
+                # Skip badge text like "New" or single words
+                if candidate and len(candidate) > 3 and candidate.lower() not in ('new', 'apply', 'remote'):
+                    title = candidate
+                    break
+        if not title:
+            title = _clean(link_inner)
+
+        # Location: secondary text or .location class, often after the title
+        location = None
+        loc_match = re.search(r'<(?:p|span|div)[^>]*class="[^"]*(?:location|body__secondary|secondary|location-tag)[^"]*"[^>]*>(.*?)</(?:p|span|div)>', block, re.IGNORECASE | re.DOTALL)
+        if loc_match:
+            location = _clean(loc_match.group(1))
+
         _add(jobs, seen, title, href, url, company_name, location=location)
 
     if jobs:
