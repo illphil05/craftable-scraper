@@ -4,9 +4,11 @@ from .icims import parse as parse_icims
 from .workday import parse as parse_workday
 from .greenhouse import parse as parse_greenhouse
 from .lever import parse as parse_lever
+from .ukg import parse as parse_ukg
+from .smartrecruiters import parse as parse_smartrecruiters
 from .generic import parse as parse_generic
 
-# URL pattern → parser function
+# URL pattern → parser function (first match wins, order matters)
 PARSERS = [
     ("paylocity.com", parse_paylocity),
     ("icims.com", parse_icims),
@@ -14,6 +16,8 @@ PARSERS = [
     ("workdayjobs", parse_workday),
     ("greenhouse.io", parse_greenhouse),
     ("lever.co", parse_lever),
+    ("ultipro.com", parse_ukg),
+    ("smartrecruiters.com", parse_smartrecruiters),
 ]
 
 

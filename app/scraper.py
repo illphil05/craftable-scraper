@@ -11,6 +11,8 @@ WAIT_SELECTORS = {
     "workdayjobs": ["[data-automation-id='jobTitle']", "a[data-automation-id]"],
     "greenhouse.io": [".job-post", ".opening", "tr.job-post"],
     "lever.co": [".posting-title", ".posting"],
+    "ultipro.com": ["a[href*='OpportunityDetail']", ".opportunity-card", ".opportunity-link"],
+    "smartrecruiters.com": ["li.opening-job", ".details-title", "a.link--block"],
 }
 
 
