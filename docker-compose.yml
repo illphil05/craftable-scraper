@@ -7,6 +7,9 @@ services:
     environment:
       - SCRAPER_API_KEY=craftable-scraper-2026
       - SITE_PASSWORD=Miles2026
+      - SCRAPER_DB_PATH=/data/scraper.db
+    volumes:
+      - /opt/craftable-scraper/data:/data
     restart: unless-stopped
     networks:
       - default
