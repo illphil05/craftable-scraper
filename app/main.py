@@ -16,10 +16,23 @@ from fastapi import FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+from app.db import init_db
+from app.routes import router as api_router
 from app.scraper import scrape_url
 from app.ui import login_page, scraper_page
 
 app = FastAPI(title="Craftable Scraper Service", version="1.1.0")
+
+app.include_router(api_router)
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
 
 API_KEY = os.environ.get("SCRAPER_API_KEY", "craftable-scraper-2026")
 SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "Miles2026")
@@ -37,6 +50,18 @@ def _require_auth(request: Request, x_api_key: str) -> None:
     if _is_authed(request):
         return
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            api_key = request.headers.get("x-api-key", "")
+            if not (api_key == API_KEY or _is_authed(request)):
+                return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 class ScrapeRequest(BaseModel):
