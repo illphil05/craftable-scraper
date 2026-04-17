@@ -99,20 +99,23 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
             _add(jobs, seen, title, href, url, company_name, department=category)
 
     # Strategy 5: JSON state hydration — look for opportunity data in embedded JSON
-    # Only match specific job title keys (not generic "Title" which matches UI templates)
+    # Only runs on the original page HTML (before shadow DOM), so find </html> boundary
     if not jobs:
+        # Limit search to original page content (exclude appended shadow DOM/API data)
+        html_end = html.find('</html>')
+        search_html = html[:html_end] if html_end > 0 else html
         for match in re.finditer(
             r'"(?:JobTitle|OpportunityTitle|ExternalTitle)"\s*:\s*"([^"]{5,150})"',
-            html
+            search_html
         ):
             title = match.group(1)
             skip_titles = {'career opportunities', 'jobs', 'careers', 'job board', 'opportunities',
                            'title', 'description', 'education', 'skills', 'documents',
-                           'work experience', 'contact information', 'links', 'uploads'}
-            if title.lower() in skip_titles:
+                           'work experience', 'contact information', 'links', 'uploads',
+                           'job title', 'job title:', 'source job', 'opportunity title'}
+            if title.lower().strip().rstrip(':') in skip_titles:
                 continue
-            # Skip template placeholders
-            if '__' in title or '{{' in title:
+            if '__' in title or '{{' in title or 'as it will appear' in title.lower():
                 continue
             _add(jobs, seen, title, None, url, company_name)
 

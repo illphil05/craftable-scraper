@@ -49,20 +49,23 @@ async def scrape_url(url: str, company_name: str | None = None, timeout: int = 3
             page = await context.new_page()
             await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-            # UKG: set up XHR response capture BEFORE navigation
+            # UKG: capture ALL XHR/fetch responses BEFORE navigation
             ukg_api_responses = []
             ukg_api_urls = []
             if is_ukg:
                 async def capture_response(response):
                     try:
-                        resp_url = response.url.lower()
+                        resp_url = response.url
                         ct = response.headers.get("content-type", "")
-                        # Capture JSON responses and any opportunity/search API calls
-                        if "json" in ct or "opportunity" in resp_url or "search" in resp_url or "api" in resp_url:
+                        # Skip static assets
+                        if any(ext in resp_url.lower() for ext in ['.css', '.png', '.jpg', '.gif', '.svg', '.woff', '.ttf', '.ico']):
+                            return
+                        # Capture JSON and HTML API responses
+                        if "json" in ct or "html" in ct or "xml" in ct or "text/plain" in ct:
                             body = await response.text()
-                            if body and len(body) > 50:
+                            if body and len(body) > 100:
                                 ukg_api_responses.append(body)
-                                ukg_api_urls.append(response.url[:200])
+                                ukg_api_urls.append(f"{response.status} {resp_url[:200]}")
                     except Exception:
                         pass
                 page.on("response", capture_response)
