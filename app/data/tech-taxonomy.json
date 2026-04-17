@@ -1,0 +1,485 @@
+{
+  "systems": [
+    {
+      "system_id": "quickbooks",
+      "system_name": "QuickBooks",
+      "category": "Accounting",
+      "keywords": ["quickbooks", "quick books", "intuit quickbooks", "qbo", "quickbooks online"],
+      "pain_points": [
+        "Limited multi-location reporting makes consolidating financials across properties time-consuming",
+        "No native hospitality chart of accounts requires significant customization",
+        "Manual data entry from POS and PMS creates reconciliation errors",
+        "Lacks food cost and recipe-level reporting needed for F&B operations"
+      ],
+      "craftable_angle": "Craftable integrates directly with QuickBooks to automate journal entries from purchasing and inventory data, eliminating manual reconciliation and providing hospitality-specific reporting."
+    },
+    {
+      "system_id": "sage",
+      "system_name": "Sage Intacct",
+      "category": "Accounting",
+      "keywords": ["sage intacct", "sage 300", "sage 100", "intacct", "sage accounting"],
+      "pain_points": [
+        "Complex multi-entity setup requires expensive consulting to configure for hospitality",
+        "F&B procurement data must be manually mapped to GL codes",
+        "Month-end close delayed by missing invoice data from paper-based purchasing",
+        "Limited operational-level cost controls visible to kitchen and bar managers"
+      ],
+      "craftable_angle": "Craftable's bi-directional Sage Intacct integration pushes coded AP transactions automatically, cutting close cycles and giving operators real-time cost visibility."
+    },
+    {
+      "system_id": "netsuite",
+      "system_name": "NetSuite",
+      "category": "ERP",
+      "keywords": ["netsuite", "oracle netsuite", "net suite"],
+      "pain_points": [
+        "High total cost of ownership with per-module licensing escalates as operations grow",
+        "Hospitality procurement workflows require custom SuiteScripts that are costly to maintain",
+        "Real-time inventory costing across outlets is complex without additional modules",
+        "Receiving and three-way matching breaks down for high-volume F&B invoices"
+      ],
+      "craftable_angle": "Craftable layers hospitality-native procurement and inventory on top of NetSuite, replacing costly custom scripts with a purpose-built integration that keeps the ERP as the system of record."
+    },
+    {
+      "system_id": "toast",
+      "system_name": "Toast POS",
+      "category": "POS",
+      "keywords": ["toast pos", "toast tab", "toasttab", "toast point of sale"],
+      "pain_points": [
+        "Sales data from Toast must be manually reconciled with purchasing costs to get true margin",
+        "No link between what was sold and what was ordered or received",
+        "Variance between theoretical and actual food cost is invisible without third-party tools",
+        "Menu engineering decisions made without real-time ingredient cost data"
+      ],
+      "craftable_angle": "Craftable ingests Toast sales mix and maps it to recipe costing, surfacing actual vs. theoretical food cost variance daily so operators can take corrective action."
+    },
+    {
+      "system_id": "micros",
+      "system_name": "Oracle MICROS",
+      "category": "POS",
+      "keywords": ["micros", "oracle micros", "micros 3700", "micros 9700", "micros simphony", "simphony"],
+      "pain_points": [
+        "Legacy MICROS systems produce sales data in formats incompatible with modern analytics tools",
+        "Recipe costing module is expensive and rarely kept up to date by operators",
+        "Void and comp tracking difficult to reconcile against purchasing records",
+        "Multi-outlet MICROS deployments create data silos per location"
+      ],
+      "craftable_angle": "Craftable's MICROS connector normalizes sales data across versions and outlets, linking it to purchasing and inventory so every outlet's P&L reflects true operational cost."
+    },
+    {
+      "system_id": "aloha",
+      "system_name": "NCR Aloha",
+      "category": "POS",
+      "keywords": ["aloha pos", "ncr aloha", "aloha point of sale", "aloha restaurant"],
+      "pain_points": [
+        "Aloha's back-office reporting requires manual export and reformatting for finance teams",
+        "No automated food cost reporting without additional NCR modules",
+        "Tip and labor data lives separately from food cost making holistic P&L difficult",
+        "Multi-unit operators struggle to aggregate Aloha data across sites"
+      ],
+      "craftable_angle": "Craftable connects to Aloha to automate daily sales-to-cost reconciliation, removing the manual export burden and delivering multi-unit P&L in one dashboard."
+    },
+    {
+      "system_id": "opera",
+      "system_name": "Oracle Opera PMS",
+      "category": "PMS",
+      "keywords": ["opera pms", "oracle opera", "opera property management", "opera cloud", "opera hotel"],
+      "pain_points": [
+        "Outlet revenue data in Opera is not connected to F&B procurement costs",
+        "Banquet and catering orders require separate systems to cost accurately",
+        "Month-end accruals for F&B are manual estimates rather than actual purchasing data",
+        "Housekeeping and F&B supply consumption tracked separately with no unified view"
+      ],
+      "craftable_angle": "Craftable integrates with Opera to connect outlet revenue to purchasing cost, automating F&B accruals and giving hotel controllers accurate departmental P&Ls."
+    },
+    {
+      "system_id": "mews",
+      "system_name": "Mews PMS",
+      "category": "PMS",
+      "keywords": ["mews", "mews systems", "mews pms", "mews property management"],
+      "pain_points": [
+        "Mews's open marketplace integrations do not include a native procurement or inventory solution",
+        "F&B revenue recorded in Mews is not matched against procurement spend",
+        "Departmental cost reporting requires manual assembly from multiple systems",
+        "Growing hotel groups on Mews lack a scalable purchasing workflow"
+      ],
+      "craftable_angle": "Craftable fills the procurement gap in the Mews ecosystem, connecting outlet revenue to purchasing data and scaling procurement workflows as properties are added."
+    },
+    {
+      "system_id": "cloudbeds",
+      "system_name": "Cloudbeds",
+      "category": "PMS",
+      "keywords": ["cloudbeds", "cloud beds", "cloudbeds pms"],
+      "pain_points": [
+        "Cloudbeds lacks a built-in purchasing or inventory module for F&B operations",
+        "Controllers manually reconcile F&B costs against Cloudbeds revenue reports",
+        "No automated cost-per-occupied-room metric for supplies and F&B",
+        "Growing boutique hotel groups outgrow manual purchasing processes quickly"
+      ],
+      "craftable_angle": "Craftable adds a complete procurement and inventory layer to Cloudbeds, automating purchasing approvals and syncing actuals to Cloudbeds revenue for true departmental margins."
+    },
+    {
+      "system_id": "lightspeed",
+      "system_name": "Lightspeed Restaurant",
+      "category": "POS",
+      "keywords": ["lightspeed", "lightspeed restaurant", "lightspeed pos", "lightspeed k series", "lightspeed l series"],
+      "pain_points": [
+        "Lightspeed's reporting is strong on sales but has no connection to supplier invoices",
+        "Food cost percentage is calculated manually from periodic inventory counts",
+        "Multi-location Lightspeed users cannot compare cost performance across outlets",
+        "Purchasing approvals and order guides are managed outside the POS in spreadsheets"
+      ],
+      "craftable_angle": "Craftable connects purchasing and inventory to Lightspeed sales data, automating food cost calculation and replacing spreadsheet order guides with digital purchase orders."
+    },
+    {
+      "system_id": "spreadsheets",
+      "system_name": "Spreadsheets / Excel",
+      "category": "Manual",
+      "keywords": ["excel", "spreadsheet", "google sheets", "google sheet", "microsoft excel", "xls", "xlsx"],
+      "pain_points": [
+        "Spreadsheet-based purchasing is error-prone and has no audit trail",
+        "Recipe costs are static snapshots that don't update when supplier prices change",
+        "Consolidating multiple outlet spreadsheets takes days of manual effort",
+        "No approval workflow means unauthorized purchases go undetected"
+      ],
+      "craftable_angle": "Craftable replaces spreadsheet purchasing with a digital workflow including approval routing, supplier price syncing, and automatic cost updates when ingredients change."
+    },
+    {
+      "system_id": "coupa",
+      "system_name": "Coupa",
+      "category": "Procurement",
+      "keywords": ["coupa", "coupa procurement", "coupa software"],
+      "pain_points": [
+        "Coupa is designed for indirect spend and lacks hospitality-specific catalog and recipe costing",
+        "High implementation cost and complexity for F&B-heavy operations",
+        "Supplier onboarding in Coupa is slow for the fragmented hospitality supplier market",
+        "Recipe and menu engineering workflows are outside Coupa's scope"
+      ],
+      "craftable_angle": "Craftable complements or replaces Coupa for hospitality F&B spend, offering purpose-built order guides, recipe costing, and supplier integrations designed for the restaurant and hotel industry."
+    },
+    {
+      "system_id": "birchstreet",
+      "system_name": "Birch Street",
+      "category": "Procurement",
+      "keywords": ["birch street", "birchstreet", "birch street systems"],
+      "pain_points": [
+        "Birch Street's interface is outdated and requires significant staff training",
+        "Mobile receiving workflows are clunky, leading to workarounds and data gaps",
+        "Integration with modern cloud-based PMS and accounting systems is limited",
+        "Reporting customization requires vendor professional services"
+      ],
+      "craftable_angle": "Craftable provides a modern, mobile-first alternative to Birch Street with intuitive receiving workflows, real-time cost visibility, and native integrations to cloud accounting and PMS platforms."
+    },
+    {
+      "system_id": "marketman",
+      "system_name": "MarketMan",
+      "category": "Inventory",
+      "keywords": ["marketman", "market man"],
+      "pain_points": [
+        "MarketMan's ordering module requires manual price updates when supplier catalogs change",
+        "Limited accounting integration means AP staff still re-key invoice data",
+        "Multi-location inventory reconciliation is cumbersome with separate databases per site",
+        "Waste tracking relies on manual logging rather than automated variance detection"
+      ],
+      "craftable_angle": "Craftable offers deeper accounting integrations and automated supplier price syncing compared to MarketMan, with multi-location inventory consolidated in a single platform."
+    },
+    {
+      "system_id": "peach",
+      "system_name": "Peach Works / Ctuit",
+      "category": "Inventory",
+      "keywords": ["peach works", "peachworks", "ctuit", "restaurant365 workforce"],
+      "pain_points": [
+        "Legacy platform with limited API access for modern integration needs",
+        "Labor and inventory data do not connect for prime cost reporting",
+        "Mobile inventory counting experience is dated compared to newer tools",
+        "Customer support and product development slower than cloud-native competitors"
+      ],
+      "craftable_angle": "Craftable provides a modern cloud-native inventory and procurement platform with real-time supplier integrations and an intuitive mobile experience purpose-built for hospitality."
+    },
+    {
+      "system_id": "restaurant365",
+      "system_name": "Restaurant365",
+      "category": "ERP",
+      "keywords": ["restaurant365", "r365", "restaurant 365"],
+      "pain_points": [
+        "Restaurant365 pricing is high for smaller or mixed hospitality operators",
+        "Implementation timeline is lengthy, delaying ROI for growing groups",
+        "Hotel F&B outlets have needs beyond R365's restaurant-centric design",
+        "Some operators find the UI complexity requires dedicated training programs"
+      ],
+      "craftable_angle": "Craftable is purpose-built for hospitality groups that span hotels and restaurants, offering faster implementation, lower cost, and integrations that span both PMS and POS environments."
+    },
+    {
+      "system_id": "compeat",
+      "system_name": "Compeat / Restaurant365 (legacy)",
+      "category": "Inventory",
+      "keywords": ["compeat", "compeat advantage", "compeat navigator"],
+      "pain_points": [
+        "Compeat is a legacy platform with end-of-life risks as R365 consolidates the product",
+        "Integration with newer cloud POS and PMS platforms is limited",
+        "Operators on Compeat face eventual forced migration with cost and disruption",
+        "Feature development has slowed as investment shifted to Restaurant365"
+      ],
+      "craftable_angle": "Craftable offers a clear migration path from Compeat with data import tools, and provides the modern cloud architecture Compeat operators need for their next chapter of growth."
+    },
+    {
+      "system_id": "xero",
+      "system_name": "Xero",
+      "category": "Accounting",
+      "keywords": ["xero", "xero accounting", "xero online"],
+      "pain_points": [
+        "Xero lacks hospitality-specific reporting and chart of accounts templates",
+        "AP data from supplier invoices must be manually keyed into Xero",
+        "Multi-currency purchasing from international suppliers creates reconciliation complexity",
+        "Inventory and cost of goods data is not natively tracked within Xero"
+      ],
+      "craftable_angle": "Craftable integrates with Xero to push coded AP transactions automatically and provides the hospitality-specific P&L reporting that Xero alone cannot deliver."
+    },
+    {
+      "system_id": "revel",
+      "system_name": "Revel Systems",
+      "category": "POS",
+      "keywords": ["revel systems", "revel pos", "revel"],
+      "pain_points": [
+        "Revel's inventory module requires frequent manual updates to stay accurate",
+        "No automatic connection between sales depletion and purchase ordering",
+        "Reporting requires significant configuration to produce hospitality-standard P&Ls",
+        "Multi-location management dashboard lacks cost-side visibility"
+      ],
+      "craftable_angle": "Craftable connects to Revel sales data to automate depletion-based ordering and deliver daily food cost reports without manual inventory reconciliation."
+    },
+    {
+      "system_id": "square",
+      "system_name": "Square for Restaurants",
+      "category": "POS",
+      "keywords": ["square for restaurants", "square pos", "square restaurant", "squareup"],
+      "pain_points": [
+        "Square lacks any procurement or inventory management for F&B operations",
+        "Cost of goods data is entirely absent from Square's native reporting",
+        "Growing operators quickly outgrow Square's basic inventory features",
+        "No integration between Square sales and supplier invoicing or ordering"
+      ],
+      "craftable_angle": "Craftable adds the procurement and inventory layer entirely missing from Square, connecting sales data to purchasing costs and enabling operators to manage food cost for the first time."
+    },
+    {
+      "system_id": "touchbistro",
+      "system_name": "TouchBistro",
+      "category": "POS",
+      "keywords": ["touchbistro", "touch bistro", "touchbistro pos"],
+      "pain_points": [
+        "TouchBistro's inventory module requires manual count sheets rather than digital receiving",
+        "No automated link between TouchBistro sales and supplier ordering or invoice reconciliation",
+        "Multi-location operators manage separate TouchBistro instances with no consolidated reporting",
+        "Food cost reporting relies on periodic physical counts, not real-time depletion"
+      ],
+      "craftable_angle": "Craftable connects TouchBistro sales depletion to automated purchasing and delivers daily food cost without manual inventory counts."
+    },
+    {
+      "system_id": "clover",
+      "system_name": "Clover POS",
+      "category": "POS",
+      "keywords": ["clover pos", "clover restaurant", "clover point of sale", "clover station"],
+      "pain_points": [
+        "Clover has no native food cost or procurement functionality",
+        "Inventory management requires third-party add-ons that don't integrate with accounting",
+        "Sales data export from Clover requires manual mapping to cost categories",
+        "Franchise and multi-unit operators lack centralized visibility across Clover locations"
+      ],
+      "craftable_angle": "Craftable bridges Clover's gap in cost management, adding procurement and inventory workflows that connect directly to Clover sales for true margin visibility."
+    },
+    {
+      "system_id": "maestro",
+      "system_name": "Maestro PMS",
+      "category": "PMS",
+      "keywords": ["maestro pms", "maestro property management", "northwind maestro"],
+      "pain_points": [
+        "Maestro's F&B outlet data is not connected to procurement or inventory systems",
+        "Independent hotels on Maestro lack a modern purchasing workflow",
+        "Month-end F&B accruals are manual estimates with no purchasing data to validate them",
+        "Departmental reporting requires exporting to spreadsheets for cost analysis"
+      ],
+      "craftable_angle": "Craftable integrates with Maestro to connect F&B revenue to purchasing cost, automating accruals and providing the departmental P&L hotel controllers need."
+    },
+    {
+      "system_id": "hotschedules",
+      "system_name": "HotSchedules / Fourth",
+      "category": "Scheduling",
+      "keywords": ["hotschedules", "hot schedules", "fourth hospitality", "fourth hr", "fourth workforce"],
+      "pain_points": [
+        "Labor cost from HotSchedules is not automatically reconciled with food cost data",
+        "Prime cost reporting requires manually combining HotSchedules labor with POS and inventory data",
+        "Overtime alerts don't connect to operational context like covers or revenue per labor hour",
+        "Finance teams re-key payroll data from HotSchedules into accounting systems manually"
+      ],
+      "craftable_angle": "Craftable pulls labor cost data from HotSchedules into a unified prime cost dashboard alongside food cost and revenue, eliminating the manual assembly that delays weekly reporting."
+    },
+    {
+      "system_id": "7shifts",
+      "system_name": "7shifts",
+      "category": "Scheduling",
+      "keywords": ["7shifts", "7 shifts", "sevenshift"],
+      "pain_points": [
+        "Labor cost in 7shifts is not linked to cost of goods for prime cost reporting",
+        "Scheduling decisions are made without visibility into ingredient cost forecasts",
+        "Finance teams must manually combine 7shifts labor exports with POS and purchasing data",
+        "Tip reporting from 7shifts requires separate reconciliation with payroll"
+      ],
+      "craftable_angle": "Craftable links 7shifts labor data with purchasing and sales to deliver prime cost reporting automatically, giving operators a complete cost picture without spreadsheet assembly."
+    },
+    {
+      "system_id": "deputy",
+      "system_name": "Deputy",
+      "category": "Scheduling",
+      "keywords": ["deputy scheduling", "deputy workforce", "deputy app", "deputy hr"],
+      "pain_points": [
+        "Deputy labor data is disconnected from food cost making prime cost reporting manual",
+        "Compliance tracking for breaks and overtime doesn't integrate with finance reporting",
+        "Exporting Deputy timesheets to payroll and accounting requires manual reformatting",
+        "Multi-location labor benchmarking is unavailable without combining Deputy with external tools"
+      ],
+      "craftable_angle": "Craftable connects Deputy labor data to purchasing and revenue metrics, providing automatic prime cost reporting and multi-unit benchmarking in one platform."
+    },
+    {
+      "system_id": "opentable",
+      "system_name": "OpenTable",
+      "category": "Reservations",
+      "keywords": ["opentable", "open table", "opentable reservations"],
+      "pain_points": [
+        "Cover count and revenue forecast from OpenTable is not connected to purchasing planning",
+        "Finance teams cannot automatically adjust par levels or purchasing budgets based on reservation volume",
+        "Private dining and event revenue in OpenTable is reconciled to F&B costs manually",
+        "No link between guest spend data and menu item cost profitability"
+      ],
+      "craftable_angle": "Craftable connects OpenTable reservation and cover data to purchasing forecasts, allowing operators to right-size orders and reduce waste based on actual demand signals."
+    },
+    {
+      "system_id": "resy",
+      "system_name": "Resy",
+      "category": "Reservations",
+      "keywords": ["resy", "resy network", "resy reservations"],
+      "pain_points": [
+        "Resy cover forecasts are not integrated with kitchen ordering or purchasing workflows",
+        "Event and private dining revenue tracked in Resy is disconnected from catering cost",
+        "No automatic adjustment of purchasing par levels based on Resy booking trends",
+        "Profitability analysis by event type requires manual data pulls from multiple systems"
+      ],
+      "craftable_angle": "Craftable uses Resy demand data to drive intelligent purchasing forecasts, reducing over-ordering and connecting event revenue to catering cost for true profitability."
+    },
+    {
+      "system_id": "sevenrooms",
+      "system_name": "SevenRooms",
+      "category": "Reservations",
+      "keywords": ["sevenrooms", "seven rooms", "sevenrooms crm"],
+      "pain_points": [
+        "Guest spend data in SevenRooms is not connected to menu cost or purchasing decisions",
+        "VIP and event pre-orders tracked in SevenRooms require manual handoff to kitchen ordering",
+        "Loyalty and spend segmentation reports cannot be reconciled against food cost by segment",
+        "Multi-outlet groups manage SevenRooms and purchasing separately with no shared data layer"
+      ],
+      "craftable_angle": "Craftable connects SevenRooms event and guest data to purchasing workflows, enabling operators to cost pre-orders accurately and analyze profitability by guest segment."
+    },
+    {
+      "system_id": "avero",
+      "system_name": "Avero",
+      "category": "Analytics",
+      "keywords": ["avero", "avero slingshot", "avero analytics"],
+      "pain_points": [
+        "Avero's sales analytics are strong but lack integration with purchasing and supplier cost data",
+        "Menu engineering in Avero uses theoretical costs rather than live ingredient prices",
+        "Food cost percentage in Avero is calculated from periodic inventory counts, not real-time purchasing",
+        "Finance teams duplicate reporting work between Avero and accounting systems"
+      ],
+      "craftable_angle": "Craftable enriches Avero's analytics with live purchasing and supplier cost data, enabling menu engineering based on actual ingredient costs rather than static estimates."
+    },
+    {
+      "system_id": "m3",
+      "system_name": "M3 Hotel Accounting",
+      "category": "Accounting",
+      "keywords": ["m3 accounting", "m3 hotel", "m3 cloud", "m3 software"],
+      "pain_points": [
+        "F&B procurement data must be manually entered into M3 for departmental cost reporting",
+        "Month-end close for F&B departments is delayed by paper-based purchasing reconciliation",
+        "M3's chart of accounts requires significant manual mapping from purchasing transactions",
+        "Multi-property hotel groups lack a unified purchasing workflow that feeds into M3"
+      ],
+      "craftable_angle": "Craftable integrates with M3 to automate the flow of coded purchasing transactions into hotel accounting, eliminating manual entry and accelerating F&B close cycles."
+    },
+    {
+      "system_id": "aptech",
+      "system_name": "Aptech",
+      "category": "Accounting",
+      "keywords": ["aptech", "aptech computer systems", "aptech enterprise"],
+      "pain_points": [
+        "Aptech requires manual AP data entry from F&B purchasing creating delays and errors",
+        "Departmental cost reporting depends on manual spreadsheet assembly outside Aptech",
+        "Hotel groups using Aptech lack automated three-way matching for F&B invoices",
+        "Legacy Aptech integrations are difficult to maintain alongside modern cloud POS systems"
+      ],
+      "craftable_angle": "Craftable provides a modern procurement layer that feeds coded AP transactions directly into Aptech, automating three-way matching and eliminating the manual data entry burden."
+    },
+    {
+      "system_id": "adp",
+      "system_name": "ADP Workforce",
+      "category": "Payroll",
+      "keywords": ["adp", "adp workforce", "adp payroll", "adp run", "adp workforce now"],
+      "pain_points": [
+        "ADP payroll data is not automatically reconciled with scheduling and POS labor reports",
+        "Finance teams must manually aggregate ADP payroll exports with operational labor data",
+        "Tips reported through ADP require separate reconciliation with POS tip tracking",
+        "Multi-entity payroll in ADP for multi-property groups requires complex manual consolidation"
+      ],
+      "craftable_angle": "Craftable connects ADP payroll actuals to scheduling and operational labor data, automating prime cost reconciliation and eliminating manual payroll-to-operations matching."
+    },
+    {
+      "system_id": "paychex",
+      "system_name": "Paychex",
+      "category": "Payroll",
+      "keywords": ["paychex", "paychex flex", "paychex payroll"],
+      "pain_points": [
+        "Paychex payroll data must be manually reconciled with scheduling systems each period",
+        "Labor cost by outlet or department requires manual extraction and reformatting from Paychex",
+        "Tip allocation reporting from Paychex is disconnected from POS tip tracking",
+        "Growing operators on Paychex lack automated prime cost reporting across properties"
+      ],
+      "craftable_angle": "Craftable pulls Paychex payroll data into a unified labor and food cost dashboard, giving operators automatic prime cost visibility without manual data assembly."
+    },
+    {
+      "system_id": "gusto",
+      "system_name": "Gusto",
+      "category": "Payroll",
+      "keywords": ["gusto payroll", "gusto hr", "gusto app"],
+      "pain_points": [
+        "Gusto lacks hospitality-specific labor reporting for prime cost analysis",
+        "Payroll data in Gusto must be manually combined with POS and scheduling data for reporting",
+        "Tip management and tip reporting is cumbersome in Gusto for tipped service teams",
+        "Operators scaling beyond a few locations outgrow Gusto's multi-entity capabilities"
+      ],
+      "craftable_angle": "Craftable bridges Gusto's payroll data with operational cost metrics, enabling growing operators to automate prime cost reporting without switching payroll providers."
+    },
+    {
+      "system_id": "olo",
+      "system_name": "Olo",
+      "category": "Delivery",
+      "keywords": ["olo", "olo ordering", "olo digital ordering", "olo rails"],
+      "pain_points": [
+        "Olo digital and delivery order revenue is not automatically reconciled with kitchen cost",
+        "Third-party commission costs from Olo Rails are tracked separately from food cost",
+        "Operators cannot see channel-level profitability without manually combining Olo and purchasing data",
+        "Delivery menu pricing decisions are made without live ingredient cost data"
+      ],
+      "craftable_angle": "Craftable connects Olo channel revenue to purchasing and food cost, enabling operators to see true profitability by channel and make delivery menu pricing decisions based on actual cost."
+    },
+    {
+      "system_id": "crunchtime",
+      "system_name": "CrunchTime",
+      "category": "Inventory",
+      "keywords": ["crunchtime", "crunch time", "crunchtime restaurant", "crunchtime operations platform"],
+      "pain_points": [
+        "CrunchTime implementation is lengthy and resource-intensive for multi-unit operators",
+        "Integration between CrunchTime and modern cloud accounting platforms requires custom development",
+        "Operators running both CrunchTime and a PMS for hotel F&B face a data silo between systems",
+        "CrunchTime licensing costs escalate significantly as the number of locations grows"
+      ],
+      "craftable_angle": "Craftable offers a faster-to-implement alternative to CrunchTime for operators who need inventory and procurement without a multi-year implementation timeline or escalating per-location fees."
+    }
+  ]
+}
