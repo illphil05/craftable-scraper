@@ -138,6 +138,11 @@ def systems_heatmap():
     return db.get_systems_heatmap()
 
 
+@router.get("/recent-scrapes")
+def recent_scrapes(limit: int = 20):
+    return db.get_recent_scrapes(limit=limit)
+
+
 # ── Save scrape results to DB ──
 
 @router.post("/save-scrape")
