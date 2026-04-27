@@ -49,7 +49,8 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
             items = [data]
         for item in items:
             if item.get("@type") == "JobPosting" and item.get("title"):
-                job_url = item.get("url") or item.get("jobLocation", {}) if isinstance(item.get("jobLocation"), str) else None
+                raw_loc = item.get("jobLocation")
+                job_url = item.get("url") or (raw_loc if isinstance(raw_loc, str) else None)
                 _add(jobs, seen, item["title"].strip(), job_url, url, company_name)
     if jobs:
         return jobs
@@ -77,7 +78,7 @@ def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, com
     if key in seen:
         return
     seen.add(key)
-    full_url = urljoin(base_url, href) if href and href and not href.startswith("http") else href
+    full_url = urljoin(base_url, href) if href and not href.startswith("http") else href
     jobs.append({
         "title": title,
         "company_name": company_name or "",

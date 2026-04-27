@@ -127,11 +127,12 @@ async def test_notes():
 
 
 async def test_stats():
+    from app.parsers import parser_count
     await db.create_company("Stats Co")
     stats = await db.get_stats()
     assert stats["companies"] == 1
     assert stats["total_jobs"] == 0
-    assert stats["parsers_available"] == 8
+    assert stats["parsers_available"] == parser_count()
 
 
 async def test_find_company_by_careers_url():

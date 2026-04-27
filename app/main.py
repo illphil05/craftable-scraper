@@ -10,7 +10,6 @@ Endpoints:
 """
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import os
 import secrets
@@ -63,7 +62,9 @@ if not _SITE_PW_RAW:
 API_KEY: str = _API_KEY_RAW
 SITE_PASSWORD: str = _SITE_PW_RAW
 SESSION_COOKIE = "scraper_session"
-SESSION_VALUE = hashlib.sha256(f"{SITE_PASSWORD}:scraper-ui".encode()).hexdigest()
+# A random, server-side-only session token — not derived from the password,
+# so even knowledge of SITE_PASSWORD cannot forge a session cookie.
+SESSION_VALUE = secrets.token_hex(64)
 
 # ── Rate limiter (#3) ─────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)

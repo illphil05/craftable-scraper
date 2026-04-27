@@ -1,7 +1,8 @@
 """Tech stack detection — scans HTML for hospitality system keywords."""
 import json
 import os
-import re
+
+from bs4 import BeautifulSoup
 
 _taxonomy: list[dict] | None = None
 TAXONOMY_PATH = os.path.join(os.path.dirname(__file__), "data", "tech-taxonomy.json")
@@ -72,4 +73,4 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
 
 
 def _strip_tags(html: str) -> str:
-    return re.sub(r'<[^>]+>', ' ', html)
+    return BeautifulSoup(html, "html.parser").get_text(separator=" ")
