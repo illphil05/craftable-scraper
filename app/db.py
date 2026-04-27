@@ -157,7 +157,12 @@ def slugify(name: str) -> str:
 
 
 def _job_content_hash(company_id: str, title: str, location: str | None) -> str:
-    """Stable hash used to deduplicate URL-less job listings (item 6)."""
+    """Stable 32-hex-char (128-bit) hash used to deduplicate URL-less job
+    listings (item 6).
+
+    128 bits from SHA-256 provides negligible collision probability even at
+    millions of jobs per company, while keeping the stored value compact.
+    """
     raw = f"{company_id}|{title.lower().strip()}|{(location or '').lower().strip()}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 

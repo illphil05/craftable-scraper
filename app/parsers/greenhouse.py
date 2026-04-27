@@ -89,9 +89,13 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
 
 def _clean_text(tag) -> str:
     text = tag.get_text(separator=" ", strip=True)
-    # Strip Greenhouse badge suffixes concatenated without spaces
-    text = re.sub(r"(?<=[a-z0-9])(New|Featured|Recently Posted)$", "", text).strip()
-    text = re.sub(r"\s+(New|Featured|Recently Posted)\s*$", "", text, flags=re.IGNORECASE).strip()
+    # Strip Greenhouse badge suffixes (e.g. "Data ScientistNew") using
+    # the same badge vocabulary as _BADGE_TEXTS (single-word badges only).
+    single_word_badges = "|".join(
+        re.escape(b.title()) for b in _BADGE_TEXTS if " " not in b
+    )
+    text = re.sub(rf"(?<=[a-z0-9])({single_word_badges})$", "", text).strip()
+    text = re.sub(rf"\s+({single_word_badges})\s*$", "", text, flags=re.IGNORECASE).strip()
     return text
 
 

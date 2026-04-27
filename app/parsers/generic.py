@@ -25,7 +25,7 @@ NAV_PATTERN = re.compile(
 
 JOB_URL_PATTERN = re.compile(
     r'/(jobs?|positions?|openings?|careers?|requisitions?|posting|apply)/[^/]+/?$'
-    r'|(jobs?|positions?|openings?|careers?|requisitions?|posting)/\d+',
+    r'|/(jobs?|positions?|openings?|careers?|requisitions?|posting)/\d+',
     re.IGNORECASE,
 )
 

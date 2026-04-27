@@ -241,12 +241,18 @@ async def _scrape_attempt(
 
             await browser.close()
 
-    return {
+    result: dict = {
         "jobs": jobs,
         "company_name": jobs[0]["company_name"] if jobs and jobs[0].get("company_name") else (company_name or ""),
         "url": url,
         "method": f"playwright:{parser_name}",
         "jobs_count": len(jobs),
         "error": None,
-        **({"html_sample": html[:60_000], "html_size": len(html), **({"ukg_api_urls": ukg_api_urls, "ukg_api_count": len(ukg_api_responses)} if is_ukg and ukg_api_urls else {})} if debug else {}),
     }
+    if debug:
+        result["html_sample"] = html[:60_000]
+        result["html_size"] = len(html)
+        if is_ukg and ukg_api_urls:
+            result["ukg_api_urls"] = ukg_api_urls
+            result["ukg_api_count"] = len(ukg_api_responses)
+    return result
