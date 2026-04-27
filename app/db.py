@@ -308,11 +308,28 @@ async def create_company(
     company_id = _uuid()
     slug = slugify(name)
     await db.execute(
-        "INSERT INTO companies (id, name, slug, website_url, careers_url, careers_source, site_family, site_variant, parent_company_name, region, first_seen, last_seen, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            company_id, name, slug, website_url, careers_url, careers_source, site_family,
-            site_variant, parent_company_name, region, now, now, now,
-        ),
+        """INSERT INTO companies (
+           id, name, slug, website_url, careers_url, careers_source, site_family, site_variant,
+           parent_company_name, region, first_seen, last_seen, created_at
+        ) VALUES (
+           :id, :name, :slug, :website_url, :careers_url, :careers_source, :site_family, :site_variant,
+           :parent_company_name, :region, :first_seen, :last_seen, :created_at
+        )""",
+        {
+            "id": company_id,
+            "name": name,
+            "slug": slug,
+            "website_url": website_url,
+            "careers_url": careers_url,
+            "careers_source": careers_source,
+            "site_family": site_family,
+            "site_variant": site_variant,
+            "parent_company_name": parent_company_name,
+            "region": region,
+            "first_seen": now,
+            "last_seen": now,
+            "created_at": now,
+        },
     )
     await db.commit()
     return await get_company(company_id)
