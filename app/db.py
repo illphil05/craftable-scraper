@@ -587,6 +587,10 @@ def _job_insert_sql() -> str:
     return f"INSERT INTO jobs ({columns}) VALUES ({placeholders})"
 
 
+_JOB_UPDATE_SQL = _job_update_sql()
+_JOB_INSERT_SQL = _job_insert_sql()
+
+
 async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> None:
     db = await get_db()
     now = _now()
@@ -608,9 +612,6 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
     seen_urls: set[str | None] = set()
     seen_hashes: set[str] = set()
-    update_sql = _job_update_sql()
-    insert_sql = _job_insert_sql()
-
     for j in jobs_data:
         job_url = j.get("url")
         content_hash = _job_content_hash(company_id, j.get("title", ""), j.get("location"))
@@ -628,11 +629,11 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
         if existing:
             next_version = int(existing.get("job_version", 0)) + 1
-            await db.execute(update_sql, {**job_payload, "job_version": next_version, "id": existing["id"]})
+            await db.execute(_JOB_UPDATE_SQL, {**job_payload, "job_version": next_version, "id": existing["id"]})
             job_id = existing["id"]
         else:
             job_id = _uuid()
-            await db.execute(insert_sql, {**job_payload, "id": job_id})
+            await db.execute(_JOB_INSERT_SQL, {**job_payload, "id": job_id})
         await db.execute("DELETE FROM job_field_evidence WHERE job_id = ?", (job_id,))
         for evidence in field_evidence:
             await db.execute(

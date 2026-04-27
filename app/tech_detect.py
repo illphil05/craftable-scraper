@@ -34,13 +34,13 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
     detections = []
 
     for system in taxonomy:
-        aliases = _unique(system.get("aliases") or system.get("keywords") or [])
+        aliases = _get_signal_list(system, "aliases", "keywords")
         explicit_strong_signals = system.get("strong_signals")
-        strong_signals = _unique(explicit_strong_signals or system.get("keywords") or aliases)
-        weak_signals = _unique(system.get("weak_signals") or [])
-        negative_signals = _unique(system.get("negative_signals") or [])
-        related_roles = _unique(system.get("related_roles") or [])
-        related_departments = _unique(system.get("related_departments") or [])
+        strong_signals = _unique(explicit_strong_signals or _get_signal_list(system, "keywords", "aliases"))
+        weak_signals = _get_signal_list(system, "weak_signals")
+        negative_signals = _get_signal_list(system, "negative_signals")
+        related_roles = _get_signal_list(system, "related_roles")
+        related_departments = _get_signal_list(system, "related_departments")
         weights = {
             "alias": 0.35,
             "strong": 0.45,
@@ -207,3 +207,10 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(normalized)
         result.append(value)
     return result
+
+
+def _get_signal_list(system: dict, *keys: str) -> list[str]:
+    for key in keys:
+        if system.get(key):
+            return _unique(system[key])
+    return []

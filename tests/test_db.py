@@ -73,7 +73,18 @@ async def test_save_and_list_jobs():
             "source_site_variant": "base",
             "source_confidence": 0.82,
             "extraction_method": "adapter:generic:base",
-            "_field_evidence": [{"field_name": "title", "source_page_type": "list", "extraction_channel": "parser:list", "raw_value": "Line Cook", "normalized_value": "Line Cook", "extraction_confidence": 0.82, "parser_version": "1.0", "adapter_version": "1.0"}],
+            "_field_evidence": [
+                {
+                    "field_name": "title",
+                    "source_page_type": "list",
+                    "extraction_channel": "parser:list",
+                    "raw_value": "Line Cook",
+                    "normalized_value": "Line Cook",
+                    "extraction_confidence": 0.82,
+                    "parser_version": "1.0",
+                    "adapter_version": "1.0",
+                }
+            ],
         },
         {"title": "Server", "url": "https://example.com/2", "location": "LA"},
     ])
