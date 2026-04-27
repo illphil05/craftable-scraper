@@ -50,10 +50,10 @@ async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8
     return False
 
 
-def _combined_wait_selectors(*selector_groups: list[str]) -> list[str]:
+def _combined_wait_selectors(*selector_lists: list[str]) -> list[str]:
     combined: list[str] = []
     seen: set[str] = set()
-    for selectors in selector_groups:
+    for selectors in selector_lists:
         for selector in selectors:
             if selector in seen:
                 continue
@@ -179,11 +179,11 @@ async def _scrape_attempt(
                 log.debug("Scroll error (non-fatal): %s [%s]", exc, request_id)
 
             await page.wait_for_timeout(2_000)
-            html = await page.content()
-            initial_html = await adapter.finalize_html(page, html, page_context, request_id)
+            initial_html = await page.content()
+            initial_finalized_html = await adapter.finalize_html(page, initial_html, page_context, request_id)
             resolved_adapter = get_adapter(
                 url,
-                html=initial_html,
+                html=initial_finalized_html,
                 response_urls=page_context.get("captured_response_urls", []),
             )
             resolved_selectors = _combined_wait_selectors(
@@ -192,17 +192,17 @@ async def _scrape_attempt(
             )
             await _wait_for_any_selector(page, resolved_selectors)
             await page.wait_for_timeout(500)
-            html = await page.content()
+            resolved_html = await page.content()
             adapter = resolved_adapter
             parser_name = adapter.manifest.family
-            html = await adapter.finalize_html(page, html, page_context, request_id)
+            final_html = await adapter.finalize_html(page, resolved_html, page_context, request_id)
             jobs = adapter.parse_jobs(
-                html,
+                final_html,
                 url,
                 company_name,
                 match_confidence=adapter.match_confidence(
                     url,
-                    html=html,
+                    html=final_html,
                     response_urls=page_context.get("captured_response_urls", []),
                 ),
             )
@@ -228,8 +228,8 @@ async def _scrape_attempt(
         "error": None,
     }
     if debug:
-        result["html_sample"] = html[:60_000]
-        result["html_size"] = len(html)
+        result["html_sample"] = final_html[:60_000]
+        result["html_size"] = len(final_html)
         if page_context.get("captured_response_urls"):
             result["captured_response_urls"] = page_context["captured_response_urls"]
             result["captured_response_count"] = len(page_context.get("captured_response_urls", []))
