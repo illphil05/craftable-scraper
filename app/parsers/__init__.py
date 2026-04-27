@@ -71,7 +71,4 @@ def _ensure_loaded() -> None:
     if _REGISTRY:
         return
     for module_info in pkgutil.iter_modules(__path__, prefix=f"{__name__}."):
-        module_name = module_info.name
-        if module_name.endswith(".generic"):
-            continue
-        importlib.import_module(module_name)
+        importlib.import_module(module_info.name)

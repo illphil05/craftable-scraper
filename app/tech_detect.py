@@ -36,7 +36,10 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
     for system in taxonomy:
         aliases = _get_signal_list(system, "aliases", "keywords")
         explicit_strong_signals = system.get("strong_signals")
-        strong_signals = _unique(explicit_strong_signals or _get_signal_list(system, "keywords", "aliases"))
+        if explicit_strong_signals is not None:
+            strong_signals = _unique(explicit_strong_signals)
+        else:
+            strong_signals = _get_signal_list(system, "keywords", "aliases")
         weak_signals = _get_signal_list(system, "weak_signals")
         negative_signals = _get_signal_list(system, "negative_signals")
         related_roles = _get_signal_list(system, "related_roles")
