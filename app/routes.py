@@ -17,6 +17,9 @@ class CompanyCreate(BaseModel):
     name: str
     website_url: str | None = None
     careers_url: str | None = None
+    careers_source: str | None = None
+    site_family: str | None = None
+    site_variant: str | None = None
     parent_company_name: str | None = None
     region: str | None = None
 
@@ -25,6 +28,9 @@ class CompanyUpdate(BaseModel):
     name: str | None = None
     website_url: str | None = None
     careers_url: str | None = None
+    careers_source: str | None = None
+    site_family: str | None = None
+    site_variant: str | None = None
     parent_company_name: str | None = None
     region: str | None = None
     notes_text: str | None = None
@@ -39,10 +45,13 @@ class SaveScrapeRequest(BaseModel):
     company_name: str | None = None
     careers_url: str
     parser_used: str
+    adapter_family: str | None = None
+    adapter_variant: str | None = None
     jobs_found: int
     elapsed_ms: int
     error: str | None = None
     html_size: int | None = None
+    artifact_refs: dict = {}
     deep: bool = False
     jobs: list[dict] = []
     html: str = ""
@@ -71,6 +80,9 @@ async def create_company(body: CompanyCreate):
         name=body.name,
         website_url=body.website_url,
         careers_url=body.careers_url,
+        careers_source=body.careers_source,
+        site_family=body.site_family,
+        site_variant=body.site_variant,
         parent_company_name=body.parent_company_name,
         region=body.region,
     )
@@ -177,7 +189,13 @@ async def save_scrape(body: SaveScrapeRequest):
         if existing:
             company_id = existing["id"]
         elif body.company_name:
-            c = await db.create_company(name=body.company_name, careers_url=body.careers_url)
+            c = await db.create_company(
+                name=body.company_name,
+                careers_url=body.careers_url,
+                careers_source="career_site",
+                site_family=body.adapter_family,
+                site_variant=body.adapter_variant,
+            )
             company_id = c["id"]
 
     if not company_id:
@@ -187,10 +205,13 @@ async def save_scrape(body: SaveScrapeRequest):
         company_id=company_id,
         url=body.careers_url,
         parser_used=body.parser_used,
+        adapter_family=body.adapter_family,
+        adapter_variant=body.adapter_variant,
         jobs_found=body.jobs_found,
         elapsed_ms=body.elapsed_ms,
         error=body.error,
         html_size=body.html_size,
+        artifact_refs=body.artifact_refs,
         deep=body.deep,
     )
 

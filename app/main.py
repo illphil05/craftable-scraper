@@ -172,11 +172,14 @@ class ScrapeResponse(BaseModel):
     company_name: str
     url: str
     method: str
+    adapter_family: str | None = None
+    adapter_variant: str | None = None
     jobs_count: int
     elapsed_ms: int
     error: str | None = None
     html_sample: str | None = None
     html_size: int | None = None
+    artifact_refs: dict | None = None
 
 
 # ── UI endpoints ──────────────────────────────────────────────────────────────
@@ -257,9 +260,15 @@ async def scrape(req: ScrapeRequest, request: Request, x_api_key: str = Header(d
         company_name=result["company_name"],
         url=result["url"],
         method=result["method"],
+        adapter_family=result.get("adapter_family"),
+        adapter_variant=result.get("adapter_variant"),
         jobs_count=result["jobs_count"],
         elapsed_ms=elapsed,
         error=result.get("error"),
         html_sample=result.get("html_sample"),
         html_size=result.get("html_size"),
+        artifact_refs={
+            "captured_response_urls": result.get("captured_response_urls", []),
+            "captured_response_count": result.get("captured_response_count", 0),
+        },
     )

@@ -52,7 +52,9 @@ async def test_delete_company():
 
 async def test_save_scrape():
     c = await db.create_company("Scrape Co")
-    sid = await db.save_scrape(c["id"], "https://example.com", "playwright:paylocity", 10, 5000, None, 50000, False)
+    sid = await db.save_scrape(
+        c["id"], "https://example.com", "playwright:paylocity", "paylocity", "base", 10, 5000, None, 50000, {}, False
+    )
     history = await db.get_scrape_history(c["id"])
     assert len(history) == 1
     assert history[0]["jobs_found"] == 10
@@ -60,25 +62,37 @@ async def test_save_scrape():
 
 async def test_save_and_list_jobs():
     c = await db.create_company("Job Co")
-    sid = await db.save_scrape(c["id"], "https://example.com", "test", 2, 1000, None, None, False)
+    sid = await db.save_scrape(c["id"], "https://example.com", "test", "generic", "base", 2, 1000, None, None, {}, False)
     await db.save_jobs(c["id"], sid, [
-        {"title": "Line Cook", "url": "https://example.com/1", "location": "NYC"},
+        {
+            "title": "Line Cook",
+            "canonical_title": "Line Cook",
+            "url": "https://example.com/1",
+            "location": "NYC",
+            "source_site_family": "generic",
+            "source_site_variant": "base",
+            "source_confidence": 0.82,
+            "extraction_method": "adapter:generic:base",
+            "_field_evidence": [{"field_name": "title", "source_page_type": "list", "extraction_channel": "parser:list", "raw_value": "Line Cook", "normalized_value": "Line Cook", "extraction_confidence": 0.82, "parser_version": "1.0", "adapter_version": "1.0"}],
+        },
         {"title": "Server", "url": "https://example.com/2", "location": "LA"},
     ])
     result = await db.list_jobs(company_id=c["id"])
     assert result["total"] == 2
     assert result["jobs"][0]["company_name"] == "Job Co"
+    job = await db.get_job(result["jobs"][0]["id"])
+    assert "field_evidence" in job
 
 
 async def test_job_deactivation_on_rescrape():
     c = await db.create_company("Deactivation Co")
-    sid1 = await db.save_scrape(c["id"], "https://example.com", "test", 2, 1000, None, None, False)
+    sid1 = await db.save_scrape(c["id"], "https://example.com", "test", "generic", "base", 2, 1000, None, None, {}, False)
     await db.save_jobs(c["id"], sid1, [
         {"title": "Job A", "url": "https://example.com/a"},
         {"title": "Job B", "url": "https://example.com/b"},
     ])
     # Re-scrape only finds Job A
-    sid2 = await db.save_scrape(c["id"], "https://example.com", "test", 1, 1000, None, None, False)
+    sid2 = await db.save_scrape(c["id"], "https://example.com", "test", "generic", "base", 1, 1000, None, None, {}, False)
     await db.save_jobs(c["id"], sid2, [
         {"title": "Job A", "url": "https://example.com/a"},
     ])
@@ -92,11 +106,11 @@ async def test_job_deactivation_on_rescrape():
 async def test_url_less_job_deduplication_by_hash():
     """Jobs without URLs should be deduplicated via content_hash (item 6)."""
     c = await db.create_company("Hash Co")
-    sid1 = await db.save_scrape(c["id"], "https://example.com", "test", 1, 500, None, None, False)
+    sid1 = await db.save_scrape(c["id"], "https://example.com", "test", "generic", "base", 1, 500, None, None, {}, False)
     await db.save_jobs(c["id"], sid1, [
         {"title": "Sous Chef", "url": None, "location": "Chicago, IL"},
     ])
-    sid2 = await db.save_scrape(c["id"], "https://example.com", "test", 1, 500, None, None, False)
+    sid2 = await db.save_scrape(c["id"], "https://example.com", "test", "generic", "base", 1, 500, None, None, {}, False)
     await db.save_jobs(c["id"], sid2, [
         {"title": "Sous Chef", "url": None, "location": "Chicago, IL"},
     ])
@@ -108,12 +122,21 @@ async def test_url_less_job_deduplication_by_hash():
 async def test_save_and_get_systems():
     c = await db.create_company("Tech Co")
     await db.save_systems(c["id"], [
-        {"system_name": "Toast POS", "system_id": "toast", "category": "POS", "confidence": 0.8, "matched_keywords": ["toast pos"]},
+        {
+            "system_name": "Toast POS",
+            "system_id": "toast",
+            "category": "POS",
+            "confidence": 0.8,
+            "matched_keywords": ["toast pos"],
+            "taxonomy_version": "1.1",
+            "evidence": [{"signal_type": "alias", "matched_phrase": "toast pos", "evidence_source": "job_description", "confidence_contribution": 0.35, "exclusion_checks": []}],
+        },
     ])
     systems = await db.get_systems(c["id"])
     assert len(systems) == 1
     assert systems[0]["system_name"] == "Toast POS"
     assert systems[0]["matched_keywords"] == ["toast pos"]
+    assert systems[0]["evidence"][0]["matched_phrase"] == "toast pos"
 
 
 async def test_notes():

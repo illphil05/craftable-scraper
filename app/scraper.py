@@ -16,7 +16,7 @@ import random
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 from app.logging_config import get_logger
-from app.parsers import get_parser, get_parser_name, get_wait_selectors
+from app.site_adapters import get_adapter
 
 log = get_logger("scraper")
 
@@ -53,18 +53,8 @@ async def scrape_url(
     Retries up to _MAX_RETRIES times with exponential back-off on transient
     failures.  Each retry rotates the User-Agent string.
     """
-    parser = get_parser(url)
-    parser_name = get_parser_name(url)
-    is_ukg = "ultipro.com" in url.lower()
-
-    # Discover whether this parser has a detail-page enrichment function (item 7)
-    parse_detail_fn = getattr(parser, "__module__", None)
-    if parse_detail_fn:
-        import importlib
-        mod = importlib.import_module(parse_detail_fn)
-        parse_detail_fn = getattr(mod, "parse_detail", None)
-    else:
-        parse_detail_fn = None
+    adapter = get_adapter(url)
+    parser_name = adapter.manifest.family
 
     last_error: str | None = None
 
@@ -76,10 +66,8 @@ async def scrape_url(
                 timeout=timeout,
                 debug=debug,
                 deep=deep,
-                parser=parser,
+                adapter=adapter,
                 parser_name=parser_name,
-                is_ukg=is_ukg,
-                parse_detail_fn=parse_detail_fn,
                 user_agent=_USER_AGENTS[(attempt - 1) % len(_USER_AGENTS)],
                 request_id=request_id,
             )
@@ -104,6 +92,8 @@ async def scrape_url(
         "company_name": company_name or "",
         "url": url,
         "method": f"playwright:{parser_name}",
+        "adapter_family": adapter.manifest.family,
+        "adapter_variant": adapter.manifest.variant,
         "jobs_count": 0,
         "error": last_error,
         "error_type": "parse_failure",
@@ -117,16 +107,14 @@ async def _scrape_attempt(
     timeout: int,
     debug: bool,
     deep: bool,
-    parser,
+    adapter,
     parser_name: str,
-    is_ukg: bool,
-    parse_detail_fn,
     user_agent: str,
     request_id: str,
 ) -> dict:
     """Single attempt to scrape *url*.  Raises on any failure so the caller
     can retry."""
-    selectors = get_wait_selectors(url)
+    selectors = list(adapter.manifest.wait_selectors)
 
     async with _BROWSER_SEM:
         async with async_playwright() as p:
@@ -147,26 +135,7 @@ async def _scrape_attempt(
             await page.add_init_script(
                 "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
             )
-
-            # UKG: capture XHR/fetch responses before navigation
-            ukg_api_responses: list[str] = []
-            ukg_api_urls: list[str] = []
-            if is_ukg:
-                async def capture_response(response):
-                    try:
-                        resp_url = response.url
-                        ct = response.headers.get("content-type", "")
-                        if any(ext in resp_url.lower() for ext in [".css", ".png", ".jpg", ".gif", ".svg", ".woff", ".ttf", ".ico"]):
-                            return
-                        if "json" in ct or "html" in ct or "xml" in ct or "text/plain" in ct:
-                            body = await response.text()
-                            if body and len(body) > 100:
-                                ukg_api_responses.append(body)
-                                ukg_api_urls.append(f"{response.status} {resp_url[:200]}")
-                    except Exception as exc:
-                        log.debug("UKG response capture error: %s [%s]", exc, request_id)
-
-                page.on("response", capture_response)
+            page_context = await adapter.prepare_page(page, request_id)
 
             # Navigate — fall back to domcontentloaded if networkidle times out
             try:
@@ -193,51 +162,30 @@ async def _scrape_attempt(
 
             await page.wait_for_timeout(2_000)
             html = await page.content()
-
-            # UKG: extract shadow DOM + append captured API responses
-            if is_ukg:
-                await page.wait_for_timeout(3_000)
-                try:
-                    shadow_html = await page.evaluate("""() => {
-                        const parts = [];
-                        function walk(root) {
-                            root.querySelectorAll('*').forEach(el => {
-                                if (el.shadowRoot) {
-                                    parts.push(el.shadowRoot.innerHTML);
-                                    walk(el.shadowRoot);
-                                }
-                            });
-                        }
-                        walk(document);
-                        return parts.join('\\n');
-                    }""")
-                    if shadow_html and len(shadow_html) > 100:
-                        html += "\n" + shadow_html
-                except Exception as exc:
-                    log.debug("Shadow DOM extraction error (non-fatal): %s [%s]", exc, request_id)
-                for resp in ukg_api_responses:
-                    html += "\n" + resp
-
-            jobs = parser(html, url, company_name)
+            html = await adapter.finalize_html(page, html, page_context, request_id)
+            adapter = get_adapter(
+                url,
+                html=html,
+                response_urls=page_context.get("captured_response_urls", []),
+            )
+            jobs = adapter.parse_jobs(
+                html,
+                url,
+                company_name,
+                match_confidence=adapter.match_confidence(
+                    url,
+                    html=html,
+                    response_urls=page_context.get("captured_response_urls", []),
+                ),
+            )
             log.info("Parsed %d jobs from '%s' using %s [%s]", len(jobs), url, parser_name, request_id)
 
             # ── Tier 2: deep scrape detail pages ────────────────────────────
-            if deep and jobs and parse_detail_fn:
+            if deep and jobs and adapter.manifest.detail_page_support:
                 log.info("Deep scraping up to %d detail pages [%s]", DEEP_SCRAPE_LIMIT, request_id)
-                for job in jobs[:DEEP_SCRAPE_LIMIT]:
-                    job_url = job.get("url")
-                    if not job_url:
-                        continue
-                    try:
-                        await page.goto(job_url, wait_until="domcontentloaded", timeout=DEEP_PAGE_TIMEOUT)
-                        await page.wait_for_timeout(1_500)
-                        detail_html = await page.content()
-                        enrichment = parse_detail_fn(detail_html)
-                        for key in ("description", "requirements", "full_address", "maps_url", "posted_date"):
-                            if enrichment.get(key) is not None:
-                                job[key] = enrichment[key]
-                    except Exception as exc:
-                        log.debug("Detail page error for '%s': %s [%s]", job_url, exc, request_id)
+                adapter.detail_limit = min(DEEP_SCRAPE_LIMIT, adapter.detail_limit)
+                adapter.detail_timeout_ms = DEEP_PAGE_TIMEOUT
+                jobs = await adapter.enrich_jobs(page, jobs, request_id)
 
             await browser.close()
 
@@ -246,13 +194,15 @@ async def _scrape_attempt(
         "company_name": jobs[0]["company_name"] if jobs and jobs[0].get("company_name") else (company_name or ""),
         "url": url,
         "method": f"playwright:{parser_name}",
+        "adapter_family": adapter.manifest.family,
+        "adapter_variant": adapter.manifest.variant,
         "jobs_count": len(jobs),
         "error": None,
     }
     if debug:
         result["html_sample"] = html[:60_000]
         result["html_size"] = len(html)
-        if is_ukg and ukg_api_urls:
-            result["ukg_api_urls"] = ukg_api_urls
-            result["ukg_api_count"] = len(ukg_api_responses)
+        if page_context.get("captured_response_urls"):
+            result["captured_response_urls"] = page_context["captured_response_urls"]
+            result["captured_response_count"] = len(page_context.get("captured_response_urls", []))
     return result

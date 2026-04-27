@@ -2,6 +2,8 @@
 
 Standalone Python/FastAPI microservice that scrapes JS-rendered ATS careers pages using Playwright + Chromium and returns structured job listings via REST API.
 
+The scraper now uses an auto-discovered site adapter layer so ATS families stay isolated from the shared browser engine, persistence, and signal-detection framework.
+
 ## Why
 
 Craftable Outreach's bundled scraper (Alpine + Node.js) cannot run a headless browser. JS-rendered ATS platforms (Paylocity, iCIMS, Workday) return empty HTML to simple HTTP fetches. This service handles those pages.
@@ -50,7 +52,16 @@ Response:
 | Workday | `*.myworkdayjobs.com/...` |
 | Greenhouse | `boards.greenhouse.io/...` |
 | Lever | `jobs.lever.co/...` |
+| UKG / UltiPro | `recruiting.ultipro.com/...` |
+| SmartRecruiters | `*.smartrecruiters.com/...` |
 | (anything else) | Generic parser |
+
+## Architecture highlights
+
+- **Shared engine**: browser lifecycle, retries, concurrency, and API surface
+- **Site adapters**: one module per ATS family under `/home/runner/work/craftable-scraper/craftable-scraper/app/site_adapters`
+- **Normalized persistence**: enriched job fields, site-family metadata, and field/signal evidence trails in SQLite
+- **Signal detection**: weighted evidence scoring backed by `/home/runner/work/craftable-scraper/craftable-scraper/app/data/tech-taxonomy.json`
 
 ## Local development
 
