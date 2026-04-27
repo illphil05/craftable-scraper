@@ -80,17 +80,28 @@ class SiteAdapter:
     def parse_detail(self, html: str) -> dict[str, Any] | None:
         return None
 
-    async def enrich_jobs(self, page: Any, jobs: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
+    async def enrich_jobs(
+        self,
+        page: Any,
+        jobs: list[dict[str, Any]],
+        request_id: str,
+        *,
+        detail_limit: int | None = None,
+        detail_timeout_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
         parse_detail = getattr(self, "parse_detail", None)
         if not callable(parse_detail) or parse_detail is SiteAdapter.parse_detail:
             return jobs
 
-        for job in jobs[: self.detail_limit]:
+        effective_detail_limit = self.detail_limit if detail_limit is None else detail_limit
+        effective_detail_timeout_ms = self.detail_timeout_ms if detail_timeout_ms is None else detail_timeout_ms
+
+        for job in jobs[: effective_detail_limit]:
             job_url = job.get("url")
             if not job_url:
                 continue
             try:
-                await page.goto(job_url, wait_until="domcontentloaded", timeout=self.detail_timeout_ms)
+                await page.goto(job_url, wait_until="domcontentloaded", timeout=effective_detail_timeout_ms)
                 await page.wait_for_timeout(1_500)
                 detail_html = await page.content()
                 enrichment = parse_detail(detail_html) or {}

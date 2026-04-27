@@ -210,10 +210,15 @@ async def _scrape_attempt(
 
             # ── Tier 2: deep scrape detail pages ────────────────────────────
             if deep and jobs and adapter.manifest.detail_page_support:
-                log.info("Deep scraping up to %d detail pages [%s]", DEEP_SCRAPE_LIMIT, request_id)
-                adapter.detail_limit = min(DEEP_SCRAPE_LIMIT, adapter.detail_limit)
-                adapter.detail_timeout_ms = DEEP_PAGE_TIMEOUT
-                jobs = await adapter.enrich_jobs(page, jobs, request_id)
+                detail_limit = min(DEEP_SCRAPE_LIMIT, adapter.detail_limit)
+                log.info("Deep scraping up to %d detail pages [%s]", detail_limit, request_id)
+                jobs = await adapter.enrich_jobs(
+                    page,
+                    jobs,
+                    request_id,
+                    detail_limit=detail_limit,
+                    detail_timeout_ms=DEEP_PAGE_TIMEOUT,
+                )
 
             await browser.close()
 
