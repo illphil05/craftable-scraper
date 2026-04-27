@@ -35,7 +35,8 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
 
     for system in taxonomy:
         aliases = _unique(system.get("aliases") or system.get("keywords") or [])
-        strong_signals = _unique(system.get("strong_signals") or aliases)
+        explicit_strong_signals = system.get("strong_signals")
+        strong_signals = _unique(explicit_strong_signals or system.get("keywords") or aliases)
         weak_signals = _unique(system.get("weak_signals") or [])
         negative_signals = _unique(system.get("negative_signals") or [])
         related_roles = _unique(system.get("related_roles") or [])
@@ -97,7 +98,8 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
                 source_counter[source_name] += 1
 
         for phrase in related_departments:
-            for source_name, matched_phrase in _match_signal(phrase, {"job_department": sources.get("job_department", "")}):
+            department_sources = {"job_department": sources.get("job_department", "")}
+            for source_name, matched_phrase in _match_signal(phrase, department_sources):
                 contribution = float(weights.get("department", 0.0))
                 score += contribution
                 evidence.append(

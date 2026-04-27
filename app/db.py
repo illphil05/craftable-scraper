@@ -516,7 +516,7 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
             existing = existing_by_hash[content_hash]
 
         if existing:
-            next_version = int(existing.get("job_version") or 1) + 1
+            next_version = int(existing.get("job_version", 0)) + 1
             await db.execute(
                 """UPDATE jobs SET scrape_id=?, title=?, location=?, department=?, snippet=?,
                    canonical_title=COALESCE(?,canonical_title), requisition_id=COALESCE(?,requisition_id),

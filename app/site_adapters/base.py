@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -157,9 +158,15 @@ class SiteAdapter:
         source_page_type: str,
         extraction_channel: str,
         extraction_confidence: float,
-    ) -> None:
+        ) -> None:
         evidence = job.setdefault("_field_evidence", [])
-        raw_value = value if isinstance(value, str) else repr(value)
+        if isinstance(value, str):
+            raw_value = value
+        else:
+            try:
+                raw_value = json.dumps(value, sort_keys=True)
+            except TypeError:
+                raw_value = str(value)
         if any(
             e.get("field_name") == field_name
             and e.get("normalized_value") == raw_value
