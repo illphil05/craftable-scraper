@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -54,12 +53,12 @@ class SiteAdapter:
             score = self.manifest.confidence_rules.get("fallback", 0.01)
         return min(score, 1.0)
 
-    async def prepare_page(self, page, request_id: str) -> dict[str, Any]:
+    async def prepare_page(self, page: Any, request_id: str) -> dict[str, Any]:
         return {"captured_response_urls": []}
 
     async def finalize_html(
         self,
-        page,
+        page: Any,
         html: str,
         page_context: dict[str, Any],
         request_id: str,
@@ -80,7 +79,7 @@ class SiteAdapter:
     def parse_detail(self, html: str) -> dict[str, Any] | None:
         return None
 
-    async def enrich_jobs(self, page, jobs: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
+    async def enrich_jobs(self, page: Any, jobs: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
         parse_detail = getattr(self, "parse_detail", None)
         if not callable(parse_detail) or parse_detail is SiteAdapter.parse_detail:
             return jobs
@@ -182,7 +181,7 @@ class SiteAdapter:
         )
 
 
-async def collect_shadow_dom(page) -> str:
+async def collect_shadow_dom(page: Any) -> str:
     return await page.evaluate(
         """() => {
             const parts = [];
@@ -198,10 +197,3 @@ async def collect_shadow_dom(page) -> str:
             return parts.join('\\n');
         }"""
     )
-
-
-async def call_maybe_async(fn: Callable[..., Any], *args, **kwargs) -> Any:
-    result = fn(*args, **kwargs)
-    if asyncio.iscoroutine(result):
-        return await result
-    return result

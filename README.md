@@ -59,9 +59,9 @@ Response:
 ## Architecture highlights
 
 - **Shared engine**: browser lifecycle, retries, concurrency, and API surface
-- **Site adapters**: one module per ATS family under `/home/runner/work/craftable-scraper/craftable-scraper/app/site_adapters`
+- **Site adapters**: one module per ATS family under `app/site_adapters`
 - **Normalized persistence**: enriched job fields, site-family metadata, and field/signal evidence trails in SQLite
-- **Signal detection**: weighted evidence scoring backed by `/home/runner/work/craftable-scraper/craftable-scraper/app/data/tech-taxonomy.json`
+- **Signal detection**: weighted evidence scoring backed by `app/data/tech-taxonomy.json`
 
 ## Local development
 

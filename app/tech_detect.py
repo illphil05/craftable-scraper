@@ -77,7 +77,12 @@ def detect_systems(html: str, jobs: list[dict] | None = None) -> list[dict]:
                     source_counter[source_name] += 1
 
         for phrase in related_roles:
-            for source_name, matched_phrase in _match_signal(phrase, {k: v for k, v in sources.items() if k in {"job_title", "job_description"}}):
+            role_sources = {
+                source_name: source_text
+                for source_name, source_text in sources.items()
+                if source_name in {"job_title", "job_description"}
+            }
+            for source_name, matched_phrase in _match_signal(phrase, role_sources):
                 contribution = float(weights.get("role", 0.0))
                 score += contribution
                 evidence.append(
