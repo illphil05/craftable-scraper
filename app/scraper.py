@@ -39,6 +39,29 @@ _USER_AGENTS = [
 ]
 
 
+async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8_000) -> bool:
+    """Wait for the first selector in *selectors* that attaches to the DOM."""
+    for selector in selectors:
+        try:
+            await page.wait_for_selector(selector, timeout=timeout, state="attached")
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _combined_wait_selectors(*selector_groups: list[str]) -> list[str]:
+    combined: list[str] = []
+    seen: set[str] = set()
+    for selectors in selector_groups:
+        for selector in selectors:
+            if selector in seen:
+                continue
+            seen.add(selector)
+            combined.append(selector)
+    return combined
+
+
 async def scrape_url(
     url: str,
     company_name: str | None = None,
@@ -91,7 +114,7 @@ async def scrape_url(
         "jobs": [],
         "company_name": company_name or "",
         "url": url,
-        "method": f"playwright:{parser_name}",
+        "method": f"playwright:{adapter.manifest.family}",
         "adapter_family": adapter.manifest.family,
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": 0,
@@ -145,12 +168,7 @@ async def _scrape_attempt(
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
             # Wait for ATS-specific selector
-            for sel in selectors:
-                try:
-                    await page.wait_for_selector(sel, timeout=8_000, state="attached")
-                    break
-                except Exception:
-                    continue
+            await _wait_for_any_selector(page, selectors)
 
             # Scroll to trigger lazy-loaded content
             try:
@@ -162,12 +180,22 @@ async def _scrape_attempt(
 
             await page.wait_for_timeout(2_000)
             html = await page.content()
-            html = await adapter.finalize_html(page, html, page_context, request_id)
-            adapter = get_adapter(
+            initial_html = await adapter.finalize_html(page, html, page_context, request_id)
+            resolved_adapter = get_adapter(
                 url,
-                html=html,
+                html=initial_html,
                 response_urls=page_context.get("captured_response_urls", []),
             )
+            resolved_selectors = _combined_wait_selectors(
+                selectors,
+                list(resolved_adapter.manifest.wait_selectors),
+            )
+            await _wait_for_any_selector(page, resolved_selectors)
+            await page.wait_for_timeout(500)
+            html = await page.content()
+            adapter = resolved_adapter
+            parser_name = adapter.manifest.family
+            html = await adapter.finalize_html(page, html, page_context, request_id)
             jobs = adapter.parse_jobs(
                 html,
                 url,

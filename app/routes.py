@@ -2,8 +2,12 @@
 
 All handlers are async to work with the aiosqlite-backed db module.
 """
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import db
 from app.tech_detect import detect_systems
@@ -51,9 +55,9 @@ class SaveScrapeRequest(BaseModel):
     elapsed_ms: int
     error: str | None = None
     html_size: int | None = None
-    artifact_refs: dict = {}
+    artifact_refs: dict[str, Any] = Field(default_factory=dict)
     deep: bool = False
-    jobs: list[dict] = []
+    jobs: list[dict[str, Any]] = Field(default_factory=list)
     html: str = ""
 
 
