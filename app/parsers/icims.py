@@ -6,7 +6,10 @@ Job cards use: .iCIMS_JobsTable, .iCIMS_MainWrapper, data-job-id
 import re
 from urllib.parse import urljoin
 
+from app.parsers import register_parser
 
+
+@register_parser("icims.com", [".iCIMS_JobsTable", "a[href*='job']"])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()

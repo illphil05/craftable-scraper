@@ -1,4 +1,4 @@
-"""Greenhouse ATS parser.
+"""Greenhouse ATS parser — rewrote HTML parsing with BeautifulSoup.
 
 URL pattern: boards.greenhouse.io/{company} or boards.greenhouse.io/embed/job_board?for={company}
 
@@ -7,99 +7,110 @@ Modern Greenhouse uses React with classes like:
   - div.opening (legacy)
   - a[href*='/jobs/'] (job detail links)
 """
-import re
 from urllib.parse import urljoin
+import re
+
+from bs4 import BeautifulSoup
+
+from app.parsers import register_parser
+
+_BADGE_TEXTS = {"new", "featured", "recently posted", "apply", "remote"}
 
 
+@register_parser("greenhouse.io", [".job-post", ".opening", "tr.job-post"])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Modern Greenhouse: <tr class="job-post"><td><a href="/jobs/123"><p class="body--medium">Title</p><span class="badge">New</span><p class="body__secondary">Location</p></a></td></tr>
-    for match in re.finditer(
-        r'<(?:tr|div)[^>]*class="[^"]*job-post[^"]*"[^>]*>(.*?)</(?:tr|div)>',
-        html, re.IGNORECASE | re.DOTALL
-    ):
-        block = match.group(1)
-        link_match = re.search(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL)
-        if not link_match:
+    # ── Strategy 1: Modern Greenhouse job-post rows ──────────────────────────
+    for row in soup.find_all(["tr", "div"], class_=lambda c: c and "job-post" in c.split()):
+        link = row.find("a", href=True)
+        if not link:
             continue
-        href = link_match.group(1)
-        link_inner = link_match.group(2)
+        href = link["href"]
 
-        # Try to find title in a specific child (p, h2, h3 with "title" or "body--medium" or "name" class)
+        # Title: prefer a child element with a recognised class, fall back to
+        # the first <p> or heading, then the full link text.
         title = None
-        for title_re in [
-            r'<(?:p|h\d|span)[^>]*class="[^"]*(?:body--medium|title|name|posting-name)[^"]*"[^>]*>(.*?)</(?:p|h\d|span)>',
-            r'<p[^>]*>(.*?)</p>',
-            r'<h\d[^>]*>(.*?)</h\d>',
-        ]:
-            tm = re.search(title_re, link_inner, re.IGNORECASE | re.DOTALL)
-            if tm:
-                candidate = _clean(tm.group(1))
-                # Skip badge text like "New" or single words
-                if candidate and len(candidate) > 3 and candidate.lower() not in ('new', 'apply', 'remote'):
+        for cls in ("body--medium", "title", "name", "posting-name"):
+            el = link.find(class_=lambda c, _cls=cls: c and _cls in c.split())
+            if el:
+                candidate = el.get_text(strip=True)
+                if candidate and len(candidate) > 3 and candidate.lower() not in _BADGE_TEXTS:
                     title = candidate
                     break
         if not title:
-            title = _clean(link_inner)
+            for tag in ("p", "h2", "h3", "h4", "h5"):
+                el = link.find(tag)
+                if el:
+                    candidate = el.get_text(strip=True)
+                    if candidate and len(candidate) > 3 and candidate.lower() not in _BADGE_TEXTS:
+                        title = candidate
+                        break
+        if not title:
+            title = _clean_text(link)
 
-        # Location: secondary text or .location class, often after the title
+        # Location
         location = None
-        loc_match = re.search(r'<(?:p|span|div)[^>]*class="[^"]*(?:location|body__secondary|secondary|location-tag)[^"]*"[^>]*>(.*?)</(?:p|span|div)>', block, re.IGNORECASE | re.DOTALL)
-        if loc_match:
-            location = _clean(loc_match.group(1))
+        loc_el = row.find(class_=lambda c: c and any(
+            x in c.split() for x in ("location", "body__secondary", "secondary", "location-tag")
+        ))
+        if loc_el:
+            location = loc_el.get_text(strip=True) or None
 
         _add(jobs, seen, title, href, url, company_name, location=location)
 
     if jobs:
         return jobs
 
-    # Legacy: <div class="opening"><a href="...">Title</a><span class="location">...</span></div>
-    for match in re.finditer(
-        r'<div[^>]*class="[^"]*opening[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>(.*?)</div>',
-        html, re.IGNORECASE | re.DOTALL
-    ):
-        href, title_html, rest = match.group(1), match.group(2), match.group(3)
-        title = _clean(title_html)
-        location_match = re.search(r'class="[^"]*location[^"]*"[^>]*>(.*?)<', rest, re.IGNORECASE | re.DOTALL)
-        location = _clean(location_match.group(1)) if location_match else None
+    # ── Strategy 2: Legacy .opening divs ────────────────────────────────────
+    for div in soup.find_all("div", class_=lambda c: c and "opening" in c.split()):
+        link = div.find("a", href=True)
+        if not link:
+            continue
+        href = link["href"]
+        title = _clean_text(link)
+        loc_el = div.find(class_=lambda c: c and "location" in (c.split() if c else []))
+        location = loc_el.get_text(strip=True) if loc_el else None
         _add(jobs, seen, title, href, url, company_name, location=location)
 
     if jobs:
         return jobs
 
-    # Fallback: any anchor pointing at /jobs/{id}
-    for match in re.finditer(
-        r'<a[^>]*href="([^"]*/jobs/\d+[^"]*)"[^>]*>(.*?)</a>',
-        html, re.IGNORECASE | re.DOTALL
-    ):
-        href, title_html = match.group(1), match.group(2)
-        _add(jobs, seen, _clean(title_html), href, url, company_name)
+    # ── Strategy 3: Fallback — any anchor pointing at /jobs/{id} ────────────
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if "/jobs/" in href and any(c.isdigit() for c in href.split("/jobs/")[-1][:10]):
+            _add(jobs, seen, _clean_text(link), href, url, company_name)
 
     return jobs
 
 
-def _clean(html_fragment: str) -> str:
-    text = re.sub(r'<[^>]+>', '', html_fragment).strip()
-    text = re.sub(r'\s+', ' ', text)
-    # HTML entity decode (basic)
-    text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"').replace('&nbsp;', ' ')
-    # Strip Greenhouse badge suffixes (often concatenated without space, e.g. "Data ScientistNew", "L2New")
-    # Match capitalized badge words at end, preceded by lowercase letter or digit
-    text = re.sub(r'(?<=[a-z0-9])(New|Featured|Recently Posted)$', '', text).strip()
-    text = re.sub(r'\s+(New|Featured|Recently Posted)\s*$', '', text, flags=re.IGNORECASE).strip()
+def _clean_text(tag) -> str:
+    text = tag.get_text(separator=" ", strip=True)
+    # Strip Greenhouse badge suffixes concatenated without spaces
+    text = re.sub(r"(?<=[a-z0-9])(New|Featured|Recently Posted)$", "", text).strip()
+    text = re.sub(r"\s+(New|Featured|Recently Posted)\s*$", "", text, flags=re.IGNORECASE).strip()
     return text
 
 
-def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, company_name: str | None, location: str | None = None):
+def _add(
+    jobs: list,
+    seen: set,
+    title: str,
+    href: str | None,
+    base_url: str,
+    company_name: str | None,
+    location: str | None = None,
+):
     if not title or len(title) < 4 or len(title) > 150:
         return
     key = title.lower()
     if key in seen:
         return
     seen.add(key)
-    full_url = urljoin(base_url, href) if href and not href.startswith('http') else href
+    full_url = urljoin(base_url, href) if href and not href.startswith("http") else href
     jobs.append({
         "title": title,
         "company_name": company_name or "",

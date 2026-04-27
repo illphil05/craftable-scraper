@@ -8,6 +8,8 @@ for the other fields (JobTitle, City, State, HiringDepartment).
 import re
 from urllib.parse import urljoin
 
+from app.parsers import register_parser
+
 
 # Window (chars) to search around each JobId for the other fields.
 # Job objects in the embedded JSON are typically ~500-1500 chars.
@@ -16,6 +18,7 @@ _WINDOW = 2000
 _JOB_DETAIL_BASE = "https://recruiting.paylocity.com/Recruiting/Jobs/Details/"
 
 
+@register_parser("paylocity.com", [".job-listing-card", "a[href*='Details']", ".job-title"])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()

@@ -6,7 +6,11 @@ Workday is a heavy SPA — uses data-automation-id attributes for job rows.
 import re
 from urllib.parse import urljoin
 
+from app.parsers import register_parser
 
+
+@register_parser("workdayjobs", ["[data-automation-id='jobTitle']", "a[data-automation-id]"])
+@register_parser("myworkday", ["[data-automation-id='jobTitle']", "a[data-automation-id]"])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()

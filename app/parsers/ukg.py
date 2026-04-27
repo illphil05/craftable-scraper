@@ -24,7 +24,13 @@ The page also embeds a JS config with jobBoard.Name (company name) and a locatio
 import re
 from urllib.parse import urljoin
 
+from app.parsers import register_parser
 
+
+@register_parser(
+    "ultipro.com",
+    ["div[data-automation='opportunity']", "a[data-automation='job-title']", "a[href*='OpportunityDetail']"],
+)
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
