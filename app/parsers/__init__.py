@@ -6,6 +6,8 @@ module or to scraper.py.
 """
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from typing import Callable
 
 # Maps URL pattern → (parse_fn, wait_selectors_list)
@@ -68,11 +70,5 @@ def _ensure_loaded() -> None:
     """Import all parser sub-modules so their @register_parser calls fire."""
     if _REGISTRY:
         return
-    # Explicit imports guarantee registration order; generic is always fallback.
-    import app.parsers.paylocity  # noqa: F401
-    import app.parsers.icims  # noqa: F401
-    import app.parsers.workday  # noqa: F401
-    import app.parsers.greenhouse  # noqa: F401
-    import app.parsers.lever  # noqa: F401
-    import app.parsers.ukg  # noqa: F401
-    import app.parsers.smartrecruiters  # noqa: F401
+    for module_info in pkgutil.iter_modules(__path__, prefix=f"{__name__}."):
+        importlib.import_module(module_info.name)

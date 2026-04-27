@@ -71,6 +71,7 @@ async def close_db() -> None:
 async def init_db() -> None:
     db = await get_db()
     await db.executescript(SCHEMA_SQL)
+    await _run_migrations(db)
     await db.commit()
 
 
@@ -81,6 +82,9 @@ CREATE TABLE IF NOT EXISTS companies (
     slug TEXT UNIQUE,
     website_url TEXT,
     careers_url TEXT,
+    careers_source TEXT,
+    site_family TEXT,
+    site_variant TEXT,
     parent_company_name TEXT,
     region TEXT,
     notes_text TEXT,
@@ -94,10 +98,13 @@ CREATE TABLE IF NOT EXISTS scrape_history (
     company_id TEXT REFERENCES companies(id),
     url TEXT NOT NULL,
     parser_used TEXT,
+    adapter_family TEXT,
+    adapter_variant TEXT,
     jobs_found INTEGER DEFAULT 0,
     elapsed_ms INTEGER,
     error TEXT,
     html_size INTEGER,
+    artifact_refs TEXT,
     deep INTEGER DEFAULT 0,
     created_at TEXT
 );
@@ -107,16 +114,38 @@ CREATE TABLE IF NOT EXISTS jobs (
     company_id TEXT REFERENCES companies(id),
     scrape_id TEXT REFERENCES scrape_history(id),
     title TEXT NOT NULL,
+    canonical_title TEXT,
+    requisition_id TEXT,
     url TEXT,
     content_hash TEXT,
     location TEXT,
+    location_type TEXT,
+    workplace_type TEXT,
+    city TEXT,
+    state TEXT,
+    country TEXT,
+    region TEXT,
     department TEXT,
+    functional_area TEXT,
+    employment_type TEXT,
+    seniority TEXT,
+    language TEXT,
+    salary_text TEXT,
+    salary_min REAL,
+    salary_max REAL,
+    salary_currency TEXT,
     snippet TEXT,
     description TEXT,
     requirements TEXT,
     full_address TEXT,
     maps_url TEXT,
     posted_date TEXT,
+    source_site_family TEXT,
+    source_site_variant TEXT,
+    source_confidence REAL DEFAULT 0.0,
+    extraction_method TEXT,
+    raw_source_ref TEXT,
+    job_version INTEGER DEFAULT 1,
     first_seen TEXT,
     last_seen TEXT,
     is_active INTEGER DEFAULT 1
@@ -131,6 +160,8 @@ CREATE TABLE IF NOT EXISTS company_systems (
     confidence REAL DEFAULT 0.0,
     matched_keywords TEXT,
     source TEXT,
+    evidence_json TEXT,
+    taxonomy_version TEXT,
     detected_at TEXT
 );
 
@@ -141,13 +172,106 @@ CREATE TABLE IF NOT EXISTS company_notes (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS job_field_evidence (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(id),
+    field_name TEXT NOT NULL,
+    source_page_type TEXT,
+    extraction_channel TEXT,
+    raw_value TEXT,
+    normalized_value TEXT,
+    extraction_confidence REAL DEFAULT 0.0,
+    parser_version TEXT,
+    adapter_version TEXT,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS system_signal_evidence (
+    id TEXT PRIMARY KEY,
+    company_system_id TEXT NOT NULL REFERENCES company_systems(id),
+    signal_type TEXT,
+    matched_phrase TEXT,
+    evidence_source TEXT,
+    confidence_contribution REAL DEFAULT 0.0,
+    exclusion_checks TEXT,
+    taxonomy_version TEXT,
+    created_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_active ON jobs(is_active);
 CREATE INDEX IF NOT EXISTS idx_jobs_hash ON jobs(content_hash);
 CREATE INDEX IF NOT EXISTS idx_scrape_company ON scrape_history(company_id);
 CREATE INDEX IF NOT EXISTS idx_systems_company ON company_systems(company_id);
 CREATE INDEX IF NOT EXISTS idx_notes_company ON company_notes(company_id);
+CREATE INDEX IF NOT EXISTS idx_job_field_evidence_job ON job_field_evidence(job_id);
+CREATE INDEX IF NOT EXISTS idx_system_signal_evidence_system ON system_signal_evidence(company_system_id);
 """
+
+
+async def _run_migrations(db: aiosqlite.Connection) -> None:
+    await _ensure_columns(
+        db,
+        "companies",
+        {
+            "careers_source": "TEXT",
+            "site_family": "TEXT",
+            "site_variant": "TEXT",
+        },
+    )
+    await _ensure_columns(
+        db,
+        "scrape_history",
+        {
+            "adapter_family": "TEXT",
+            "adapter_variant": "TEXT",
+            "artifact_refs": "TEXT",
+        },
+    )
+    await _ensure_columns(
+        db,
+        "jobs",
+        {
+            "canonical_title": "TEXT",
+            "requisition_id": "TEXT",
+            "location_type": "TEXT",
+            "workplace_type": "TEXT",
+            "city": "TEXT",
+            "state": "TEXT",
+            "country": "TEXT",
+            "region": "TEXT",
+            "functional_area": "TEXT",
+            "employment_type": "TEXT",
+            "seniority": "TEXT",
+            "language": "TEXT",
+            "salary_text": "TEXT",
+            "salary_min": "REAL",
+            "salary_max": "REAL",
+            "salary_currency": "TEXT",
+            "source_site_family": "TEXT",
+            "source_site_variant": "TEXT",
+            "source_confidence": "REAL DEFAULT 0.0",
+            "extraction_method": "TEXT",
+            "raw_source_ref": "TEXT",
+            "job_version": "INTEGER DEFAULT 1",
+        },
+    )
+    await _ensure_columns(
+        db,
+        "company_systems",
+        {
+            "evidence_json": "TEXT",
+            "taxonomy_version": "TEXT",
+        },
+    )
+
+
+async def _ensure_columns(db: aiosqlite.Connection, table: str, columns: dict[str, str]) -> None:
+    async with db.execute(f"PRAGMA table_info({table})") as cur:
+        existing = {row[1] for row in await cur.fetchall()}
+    for column_name, column_type in columns.items():
+        if column_name not in existing:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}")
 
 
 def slugify(name: str) -> str:
@@ -173,6 +297,9 @@ async def create_company(
     name: str,
     careers_url: str | None = None,
     website_url: str | None = None,
+    careers_source: str | None = None,
+    site_family: str | None = None,
+    site_variant: str | None = None,
     parent_company_name: str | None = None,
     region: str | None = None,
 ) -> dict:
@@ -181,8 +308,28 @@ async def create_company(
     company_id = _uuid()
     slug = slugify(name)
     await db.execute(
-        "INSERT INTO companies (id, name, slug, website_url, careers_url, parent_company_name, region, first_seen, last_seen, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (company_id, name, slug, website_url, careers_url, parent_company_name, region, now, now, now),
+        """INSERT INTO companies (
+           id, name, slug, website_url, careers_url, careers_source, site_family, site_variant,
+           parent_company_name, region, first_seen, last_seen, created_at
+        ) VALUES (
+           :id, :name, :slug, :website_url, :careers_url, :careers_source, :site_family, :site_variant,
+           :parent_company_name, :region, :first_seen, :last_seen, :created_at
+        )""",
+        {
+            "id": company_id,
+            "name": name,
+            "slug": slug,
+            "website_url": website_url,
+            "careers_url": careers_url,
+            "careers_source": careers_source,
+            "site_family": site_family,
+            "site_variant": site_variant,
+            "parent_company_name": parent_company_name,
+            "region": region,
+            "first_seen": now,
+            "last_seen": now,
+            "created_at": now,
+        },
     )
     await db.commit()
     return await get_company(company_id)
@@ -208,7 +355,10 @@ async def get_company(company_id: str) -> dict | None:
 
 async def update_company(company_id: str, **kwargs) -> dict | None:
     db = await get_db()
-    allowed = {"name", "slug", "website_url", "careers_url", "parent_company_name", "region", "notes_text"}
+    allowed = {
+        "name", "slug", "website_url", "careers_url", "careers_source", "site_family",
+        "site_variant", "parent_company_name", "region", "notes_text",
+    }
     updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
     if "name" in updates:
         updates["slug"] = slugify(updates["name"])
@@ -280,17 +430,34 @@ async def save_scrape(
     company_id: str | None,
     url: str,
     parser_used: str,
+    adapter_family: str | None,
+    adapter_variant: str | None,
     jobs_found: int,
     elapsed_ms: int,
     error: str | None,
     html_size: int | None,
+    artifact_refs: dict | None,
     deep: bool,
 ) -> str:
     db = await get_db()
     scrape_id = _uuid()
     await db.execute(
-        "INSERT INTO scrape_history (id, company_id, url, parser_used, jobs_found, elapsed_ms, error, html_size, deep, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (scrape_id, company_id, url, parser_used, jobs_found, elapsed_ms, error, html_size, int(deep), _now()),
+        "INSERT INTO scrape_history (id, company_id, url, parser_used, adapter_family, adapter_variant, jobs_found, elapsed_ms, error, html_size, artifact_refs, deep, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            scrape_id,
+            company_id,
+            url,
+            parser_used,
+            adapter_family,
+            adapter_variant,
+            jobs_found,
+            elapsed_ms,
+            error,
+            html_size,
+            json.dumps(artifact_refs or {}),
+            int(deep),
+            _now(),
+        ),
     )
     if company_id:
         await db.execute("UPDATE companies SET last_seen = ? WHERE id = ?", (_now(), company_id))
@@ -315,10 +482,114 @@ async def get_recent_scrapes(limit: int = 20) -> list[dict]:
            ORDER BY sh.created_at DESC LIMIT ?""",
         (limit,),
     ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
+        rows = [dict(r) for r in await cur.fetchall()]
+    for row in rows:
+        if row.get("artifact_refs"):
+            try:
+                row["artifact_refs"] = json.loads(row["artifact_refs"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return rows
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────
+
+_JOB_INSERT_FIELDS = (
+    "id", "company_id", "scrape_id", "title", "canonical_title", "requisition_id", "url", "content_hash",
+    "location", "location_type", "workplace_type", "city", "state", "country", "region", "department",
+    "functional_area", "employment_type", "seniority", "language", "salary_text", "salary_min", "salary_max",
+    "salary_currency", "snippet", "description", "requirements", "full_address", "maps_url", "posted_date",
+    "source_site_family", "source_site_variant", "source_confidence", "extraction_method", "raw_source_ref",
+    "first_seen", "last_seen", "job_version",
+)
+
+_JOB_UPDATE_FIELDS = (
+    "title", "location", "department", "snippet", "canonical_title", "requisition_id", "employment_type",
+    "workplace_type", "location_type", "city", "state", "country", "region", "functional_area", "language",
+    "seniority", "salary_text", "salary_min", "salary_max", "salary_currency", "description", "requirements",
+    "full_address", "maps_url", "posted_date", "source_site_family", "source_site_variant", "source_confidence",
+    "extraction_method", "raw_source_ref",
+)
+
+_JOB_PRESERVE_IF_NONE = {
+    "canonical_title", "requisition_id", "employment_type", "workplace_type", "location_type", "city", "state",
+    "country", "region", "functional_area", "language", "seniority", "salary_text", "salary_min", "salary_max",
+    "salary_currency", "description", "requirements", "full_address", "maps_url", "posted_date",
+    "source_site_family", "source_site_variant", "source_confidence", "extraction_method", "raw_source_ref",
+}
+
+
+def _build_job_payload(job: dict, *, company_id: str, scrape_id: str, now: str, content_hash: str) -> dict:
+    requirements = job.get("requirements")
+    requirements_value = json.dumps(requirements) if isinstance(requirements, list) else requirements
+    return {
+        "company_id": company_id,
+        "scrape_id": scrape_id,
+        "title": job.get("title", ""),
+        "canonical_title": job.get("canonical_title"),
+        "requisition_id": job.get("requisition_id"),
+        "url": job.get("url"),
+        "content_hash": content_hash,
+        "location": job.get("location"),
+        "location_type": job.get("location_type"),
+        "workplace_type": job.get("workplace_type"),
+        "city": job.get("city"),
+        "state": job.get("state"),
+        "country": job.get("country"),
+        "region": job.get("region"),
+        "department": job.get("department"),
+        "functional_area": job.get("functional_area"),
+        "employment_type": job.get("employment_type"),
+        "seniority": job.get("seniority"),
+        "language": job.get("language"),
+        "salary_text": job.get("salary_text"),
+        "salary_min": job.get("salary_min"),
+        "salary_max": job.get("salary_max"),
+        "salary_currency": job.get("salary_currency"),
+        "snippet": job.get("snippet"),
+        "description": job.get("description"),
+        "requirements": requirements_value,
+        "full_address": job.get("full_address"),
+        "maps_url": job.get("maps_url"),
+        "posted_date": job.get("posted_date"),
+        "source_site_family": job.get("source_site_family"),
+        "source_site_variant": job.get("source_site_variant"),
+        "source_confidence": job.get("source_confidence"),
+        "extraction_method": job.get("extraction_method"),
+        "raw_source_ref": job.get("raw_source_ref"),
+        "first_seen": now,
+        "last_seen": now,
+        "job_version": 1,
+    }
+
+
+def _job_update_sql() -> str:
+    assignments = ["scrape_id = :scrape_id"]
+    for field_name in _JOB_UPDATE_FIELDS:
+        if field_name in _JOB_PRESERVE_IF_NONE:
+            assignments.append(f"{field_name} = COALESCE(:{field_name}, {field_name})")
+        else:
+            assignments.append(f"{field_name} = :{field_name}")
+    assignments.extend(
+        [
+            "last_seen = :last_seen",
+            "is_active = 1",
+            "content_hash = :content_hash",
+            "job_version = :job_version",
+        ]
+    )
+    return f"UPDATE jobs SET {', '.join(assignments)} WHERE id = :id"
+
+
+def _job_insert_sql() -> str:
+    columns = ", ".join(_JOB_INSERT_FIELDS) + ", is_active"
+    placeholders = ", ".join(f":{field_name}" for field_name in _JOB_INSERT_FIELDS) + ", 1"
+    return f"INSERT INTO jobs ({columns}) VALUES ({placeholders})"
+
+
+_JOB_UPDATE_SQL = _job_update_sql()
+_JOB_INSERT_SQL = _job_insert_sql()
+
 
 async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> None:
     db = await get_db()
@@ -341,12 +612,11 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
     seen_urls: set[str | None] = set()
     seen_hashes: set[str] = set()
-
     for j in jobs_data:
         job_url = j.get("url")
         content_hash = _job_content_hash(company_id, j.get("title", ""), j.get("location"))
-        reqs = j.get("requirements")
-        reqs_json = json.dumps(reqs) if isinstance(reqs, list) else reqs
+        field_evidence = j.get("_field_evidence", [])
+        job_payload = _build_job_payload(j, company_id=company_id, scrape_id=scrape_id, now=now, content_hash=content_hash)
 
         seen_urls.add(job_url)
         seen_hashes.add(content_hash)
@@ -358,30 +628,32 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
             existing = existing_by_hash[content_hash]
 
         if existing:
-            await db.execute(
-                """UPDATE jobs SET scrape_id=?, title=?, location=?, department=?, snippet=?,
-                   description=COALESCE(?,description), requirements=COALESCE(?,requirements),
-                   full_address=COALESCE(?,full_address), maps_url=COALESCE(?,maps_url),
-                   posted_date=COALESCE(?,posted_date), last_seen=?, is_active=1, content_hash=?
-                   WHERE id=?""",
-                (
-                    scrape_id, j.get("title", ""), j.get("location"), j.get("department"),
-                    j.get("snippet"), j.get("description"), reqs_json,
-                    j.get("full_address"), j.get("maps_url"), j.get("posted_date"),
-                    now, content_hash, existing["id"],
-                ),
-            )
+            existing_version = existing.get("job_version")
+            next_version = int(existing_version) + 1 if existing_version is not None else 1
+            await db.execute(_JOB_UPDATE_SQL, {**job_payload, "job_version": next_version, "id": existing["id"]})
+            job_id = existing["id"]
         else:
+            job_id = _uuid()
+            await db.execute(_JOB_INSERT_SQL, {**job_payload, "id": job_id})
+        await db.execute("DELETE FROM job_field_evidence WHERE job_id = ?", (job_id,))
+        for evidence in field_evidence:
             await db.execute(
-                """INSERT INTO jobs (id, company_id, scrape_id, title, url, content_hash,
-                   location, department, snippet, description, requirements, full_address,
-                   maps_url, posted_date, first_seen, last_seen, is_active)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                """INSERT INTO job_field_evidence (
+                   id, job_id, field_name, source_page_type, extraction_channel, raw_value, normalized_value,
+                   extraction_confidence, parser_version, adapter_version, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    _uuid(), company_id, scrape_id, j.get("title", ""), job_url, content_hash,
-                    j.get("location"), j.get("department"), j.get("snippet"),
-                    j.get("description"), reqs_json, j.get("full_address"),
-                    j.get("maps_url"), j.get("posted_date"), now, now,
+                    _uuid(),
+                    job_id,
+                    evidence.get("field_name"),
+                    evidence.get("source_page_type"),
+                    evidence.get("extraction_channel"),
+                    evidence.get("raw_value"),
+                    evidence.get("normalized_value"),
+                    evidence.get("extraction_confidence", 0.0),
+                    evidence.get("parser_version"),
+                    evidence.get("adapter_version"),
+                    now,
                 ),
             )
 
@@ -455,7 +727,20 @@ async def get_job(job_id: str) -> dict | None:
         (job_id,),
     ) as cur:
         row = await cur.fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    job = dict(row)
+    if job.get("requirements"):
+        try:
+            job["requirements"] = json.loads(job["requirements"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    async with db.execute(
+        "SELECT field_name, source_page_type, extraction_channel, raw_value, normalized_value, extraction_confidence, parser_version, adapter_version FROM job_field_evidence WHERE job_id = ? ORDER BY created_at, field_name",
+        (job_id,),
+    ) as cur:
+        job["field_evidence"] = [dict(r) for r in await cur.fetchall()]
+    return job
 
 
 # ── Company Systems ───────────────────────────────────────────────────────────
@@ -463,15 +748,47 @@ async def get_job(job_id: str) -> dict | None:
 async def save_systems(company_id: str, systems: list[dict]) -> None:
     db = await get_db()
     now = _now()
+    async with db.execute("SELECT id FROM company_systems WHERE company_id = ?", (company_id,)) as cur:
+        existing = [row[0] for row in await cur.fetchall()]
+    for system_id in existing:
+        await db.execute("DELETE FROM system_signal_evidence WHERE company_system_id = ?", (system_id,))
     await db.execute("DELETE FROM company_systems WHERE company_id = ?", (company_id,))
     for s in systems:
+        company_system_id = _uuid()
         await db.execute(
-            "INSERT INTO company_systems (id, company_id, system_name, system_id, category, confidence, matched_keywords, source, detected_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO company_systems (id, company_id, system_name, system_id, category, confidence, matched_keywords, source, evidence_json, taxonomy_version, detected_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
-                _uuid(), company_id, s["system_name"], s["system_id"], s["category"],
-                s["confidence"], json.dumps(s.get("matched_keywords", [])), s.get("source", "careers_page"), now,
+                company_system_id,
+                company_id,
+                s["system_name"],
+                s["system_id"],
+                s["category"],
+                s["confidence"],
+                json.dumps(s.get("matched_keywords", [])),
+                s.get("source", "careers_page"),
+                json.dumps(s.get("evidence", [])),
+                s.get("taxonomy_version"),
+                now,
             ),
         )
+        for evidence in s.get("evidence", []):
+            await db.execute(
+                """INSERT INTO system_signal_evidence (
+                   id, company_system_id, signal_type, matched_phrase, evidence_source,
+                   confidence_contribution, exclusion_checks, taxonomy_version, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    _uuid(),
+                    company_system_id,
+                    evidence.get("signal_type"),
+                    evidence.get("matched_phrase"),
+                    evidence.get("evidence_source"),
+                    evidence.get("confidence_contribution", 0.0),
+                    json.dumps(evidence.get("exclusion_checks", [])),
+                    s.get("taxonomy_version"),
+                    now,
+                ),
+            )
     await db.commit()
 
 
@@ -488,6 +805,11 @@ async def get_systems(company_id: str) -> list[dict]:
         if d.get("matched_keywords"):
             try:
                 d["matched_keywords"] = json.loads(d["matched_keywords"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if d.get("evidence_json"):
+            try:
+                d["evidence"] = json.loads(d["evidence_json"])
             except (json.JSONDecodeError, TypeError):
                 pass
         result.append(d)
@@ -540,7 +862,7 @@ async def get_notes(company_id: str) -> list[dict]:
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 async def get_stats() -> dict:
-    from app.parsers import parser_count
+    from app.site_adapters import adapter_count
     db = await get_db()
 
     async def _scalar(sql: str) -> int:
@@ -553,5 +875,5 @@ async def get_stats() -> dict:
         "active_jobs": await _scalar("SELECT COUNT(*) FROM jobs WHERE is_active = 1"),
         "systems_detected": await _scalar("SELECT COUNT(DISTINCT system_id || company_id) FROM company_systems"),
         "recent_scrapes_24h": await _scalar("SELECT COUNT(*) FROM scrape_history WHERE created_at > datetime('now', '-1 day')"),
-        "parsers_available": parser_count(),
+        "parsers_available": adapter_count(include_generic=True),
     }
