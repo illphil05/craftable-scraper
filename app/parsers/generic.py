@@ -1,9 +1,13 @@
 """Generic parser — works on any HTML page with job listing links.
 
 Falls back from JSON-LD structured data → href patterns → keyword matches.
+Rewrote HTML traversal to use BeautifulSoup for robustness.
 """
+import json
 import re
 from urllib.parse import urljoin
+
+from bs4 import BeautifulSoup
 
 JOB_KEYWORDS = re.compile(
     r'(?i)(manager|director|coordinator|analyst|specialist|controller|accountant|chef|'
@@ -19,7 +23,11 @@ NAV_PATTERN = re.compile(
     r'remote\s+jobs?|find\s+jobs?|filter\s+results?|reset|clear)\b', re.IGNORECASE
 )
 
-JOB_URL_PATTERN = re.compile(r'/(jobs?|positions?|openings?|careers?|requisitions?|posting|apply)/[^/]+/?$|/(jobs?|positions?|openings?|careers?|requisitions?|posting)/\d+', re.IGNORECASE)
+JOB_URL_PATTERN = re.compile(
+    r'/(jobs?|positions?|openings?|careers?|requisitions?|posting|apply)/[^/]+/?$'
+    r'|/(jobs?|positions?|openings?|careers?|requisitions?|posting)/\d+',
+    re.IGNORECASE,
+)
 
 
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
@@ -27,18 +35,30 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     seen: set[str] = set()
 
     # Strategy 1: JSON-LD JobPosting structured data (most reliable)
-    for match in re.finditer(
-        r'"@type"\s*:\s*"JobPosting".*?"title"\s*:\s*"([^"]+)"',
-        html, re.DOTALL
-    ):
-        _add(jobs, seen, match.group(1).strip(), None, url, company_name)
+    soup = BeautifulSoup(html, "html.parser")
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict) and data.get("@graph"):
+            items = data["@graph"]
+        else:
+            items = [data]
+        for item in items:
+            if item.get("@type") == "JobPosting" and item.get("title"):
+                raw_loc = item.get("jobLocation")
+                job_url = item.get("url") or (raw_loc if isinstance(raw_loc, str) else None)
+                _add(jobs, seen, item["title"].strip(), job_url, url, company_name)
     if jobs:
         return jobs
 
     # Strategy 2: Anchor tags with job-like URLs or job-keyword titles
-    for match in re.finditer(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', html, re.DOTALL):
-        href, link_html = match.group(1), match.group(2)
-        title = _clean(link_html)
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        title = link.get_text(separator=" ", strip=True)
         if not title or len(title) < 5 or len(title) > 150:
             continue
         if NAV_PATTERN.match(title):
@@ -51,11 +71,6 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     return jobs
 
 
-def _clean(html_fragment: str) -> str:
-    text = re.sub(r'<[^>]+>', '', html_fragment).strip()
-    return re.sub(r'\s+', ' ', text)
-
-
 def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, company_name: str | None):
     if not title or len(title) < 4 or len(title) > 150:
         return
@@ -63,7 +78,7 @@ def _add(jobs: list, seen: set, title: str, href: str | None, base_url: str, com
     if key in seen:
         return
     seen.add(key)
-    full_url = urljoin(base_url, href) if href and not href.startswith('http') else href
+    full_url = urljoin(base_url, href) if href and not href.startswith("http") else href
     jobs.append({
         "title": title,
         "company_name": company_name or "",

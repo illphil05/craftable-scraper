@@ -21,7 +21,10 @@ Newer career sites use plain <a href="/{company}/..."> with structured JSON-LD.
 import re
 from urllib.parse import urljoin
 
+from app.parsers import register_parser
 
+
+@register_parser("smartrecruiters.com", ["li.opening-job", ".details-title", "a.link--block"])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     jobs: list[dict] = []
     seen: set[str] = set()
