@@ -477,6 +477,99 @@ async def get_recent_scrapes(limit: int = 20) -> list[dict]:
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 
+_JOB_INSERT_FIELDS = (
+    "id", "company_id", "scrape_id", "title", "canonical_title", "requisition_id", "url", "content_hash",
+    "location", "location_type", "workplace_type", "city", "state", "country", "region", "department",
+    "functional_area", "employment_type", "seniority", "language", "salary_text", "salary_min", "salary_max",
+    "salary_currency", "snippet", "description", "requirements", "full_address", "maps_url", "posted_date",
+    "source_site_family", "source_site_variant", "source_confidence", "extraction_method", "raw_source_ref",
+    "first_seen", "last_seen", "job_version",
+)
+
+_JOB_UPDATE_FIELDS = (
+    "title", "location", "department", "snippet", "canonical_title", "requisition_id", "employment_type",
+    "workplace_type", "location_type", "city", "state", "country", "region", "functional_area", "language",
+    "seniority", "salary_text", "salary_min", "salary_max", "salary_currency", "description", "requirements",
+    "full_address", "maps_url", "posted_date", "source_site_family", "source_site_variant", "source_confidence",
+    "extraction_method", "raw_source_ref",
+)
+
+_JOB_PRESERVE_IF_NONE = {
+    "canonical_title", "requisition_id", "employment_type", "workplace_type", "location_type", "city", "state",
+    "country", "region", "functional_area", "language", "seniority", "salary_text", "salary_min", "salary_max",
+    "salary_currency", "description", "requirements", "full_address", "maps_url", "posted_date",
+    "source_site_family", "source_site_variant", "source_confidence", "extraction_method", "raw_source_ref",
+}
+
+
+def _build_job_payload(job: dict, *, company_id: str, scrape_id: str, now: str, content_hash: str) -> dict:
+    requirements = job.get("requirements")
+    requirements_value = json.dumps(requirements) if isinstance(requirements, list) else requirements
+    return {
+        "company_id": company_id,
+        "scrape_id": scrape_id,
+        "title": job.get("title", ""),
+        "canonical_title": job.get("canonical_title"),
+        "requisition_id": job.get("requisition_id"),
+        "url": job.get("url"),
+        "content_hash": content_hash,
+        "location": job.get("location"),
+        "location_type": job.get("location_type"),
+        "workplace_type": job.get("workplace_type"),
+        "city": job.get("city"),
+        "state": job.get("state"),
+        "country": job.get("country"),
+        "region": job.get("region"),
+        "department": job.get("department"),
+        "functional_area": job.get("functional_area"),
+        "employment_type": job.get("employment_type"),
+        "seniority": job.get("seniority"),
+        "language": job.get("language"),
+        "salary_text": job.get("salary_text"),
+        "salary_min": job.get("salary_min"),
+        "salary_max": job.get("salary_max"),
+        "salary_currency": job.get("salary_currency"),
+        "snippet": job.get("snippet"),
+        "description": job.get("description"),
+        "requirements": requirements_value,
+        "full_address": job.get("full_address"),
+        "maps_url": job.get("maps_url"),
+        "posted_date": job.get("posted_date"),
+        "source_site_family": job.get("source_site_family"),
+        "source_site_variant": job.get("source_site_variant"),
+        "source_confidence": job.get("source_confidence"),
+        "extraction_method": job.get("extraction_method"),
+        "raw_source_ref": job.get("raw_source_ref"),
+        "first_seen": now,
+        "last_seen": now,
+        "job_version": 1,
+    }
+
+
+def _job_update_sql() -> str:
+    assignments = ["scrape_id = :scrape_id"]
+    for field_name in _JOB_UPDATE_FIELDS:
+        if field_name in _JOB_PRESERVE_IF_NONE:
+            assignments.append(f"{field_name} = COALESCE(:{field_name}, {field_name})")
+        else:
+            assignments.append(f"{field_name} = :{field_name}")
+    assignments.extend(
+        [
+            "last_seen = :last_seen",
+            "is_active = 1",
+            "content_hash = :content_hash",
+            "job_version = :job_version",
+        ]
+    )
+    return f"UPDATE jobs SET {', '.join(assignments)} WHERE id = :id"
+
+
+def _job_insert_sql() -> str:
+    columns = ", ".join(_JOB_INSERT_FIELDS) + ", is_active"
+    placeholders = ", ".join(f":{field_name}" for field_name in _JOB_INSERT_FIELDS) + ", 1"
+    return f"INSERT INTO jobs ({columns}) VALUES ({placeholders})"
+
+
 async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> None:
     db = await get_db()
     now = _now()
@@ -498,13 +591,14 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
     seen_urls: set[str | None] = set()
     seen_hashes: set[str] = set()
+    update_sql = _job_update_sql()
+    insert_sql = _job_insert_sql()
 
     for j in jobs_data:
         job_url = j.get("url")
         content_hash = _job_content_hash(company_id, j.get("title", ""), j.get("location"))
-        reqs = j.get("requirements")
-        reqs_json = json.dumps(reqs) if isinstance(reqs, list) else reqs
         field_evidence = j.get("_field_evidence", [])
+        job_payload = _build_job_payload(j, company_id=company_id, scrape_id=scrape_id, now=now, content_hash=content_hash)
 
         seen_urls.add(job_url)
         seen_hashes.add(content_hash)
@@ -517,82 +611,11 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
         if existing:
             next_version = int(existing.get("job_version", 0)) + 1
-            await db.execute(
-                """UPDATE jobs SET scrape_id=?, title=?, location=?, department=?, snippet=?,
-                   canonical_title=COALESCE(?,canonical_title), requisition_id=COALESCE(?,requisition_id),
-                   employment_type=COALESCE(?,employment_type), workplace_type=COALESCE(?,workplace_type),
-                   location_type=COALESCE(?,location_type), city=COALESCE(?,city), state=COALESCE(?,state),
-                   country=COALESCE(?,country), region=COALESCE(?,region), functional_area=COALESCE(?,functional_area),
-                   language=COALESCE(?,language), seniority=COALESCE(?,seniority), salary_text=COALESCE(?,salary_text),
-                   salary_min=COALESCE(?,salary_min), salary_max=COALESCE(?,salary_max),
-                   salary_currency=COALESCE(?,salary_currency), description=COALESCE(?,description),
-                   requirements=COALESCE(?,requirements), full_address=COALESCE(?,full_address),
-                   maps_url=COALESCE(?,maps_url), posted_date=COALESCE(?,posted_date),
-                   source_site_family=COALESCE(?,source_site_family), source_site_variant=COALESCE(?,source_site_variant),
-                   source_confidence=COALESCE(?,source_confidence), extraction_method=COALESCE(?,extraction_method),
-                   raw_source_ref=COALESCE(?,raw_source_ref), last_seen=?, is_active=1, content_hash=?, job_version=?
-                   WHERE id=?""",
-                (
-                    scrape_id,
-                    j.get("title", ""),
-                    j.get("location"),
-                    j.get("department"),
-                    j.get("snippet"),
-                    j.get("canonical_title"),
-                    j.get("requisition_id"),
-                    j.get("employment_type"),
-                    j.get("workplace_type"),
-                    j.get("location_type"),
-                    j.get("city"),
-                    j.get("state"),
-                    j.get("country"),
-                    j.get("region"),
-                    j.get("functional_area"),
-                    j.get("language"),
-                    j.get("seniority"),
-                    j.get("salary_text"),
-                    j.get("salary_min"),
-                    j.get("salary_max"),
-                    j.get("salary_currency"),
-                    j.get("description"),
-                    reqs_json,
-                    j.get("full_address"),
-                    j.get("maps_url"),
-                    j.get("posted_date"),
-                    j.get("source_site_family"),
-                    j.get("source_site_variant"),
-                    j.get("source_confidence"),
-                    j.get("extraction_method"),
-                    j.get("raw_source_ref"),
-                    now,
-                    content_hash,
-                    next_version,
-                    existing["id"],
-                ),
-            )
+            await db.execute(update_sql, {**job_payload, "job_version": next_version, "id": existing["id"]})
             job_id = existing["id"]
         else:
             job_id = _uuid()
-            await db.execute(
-                """INSERT INTO jobs (id, company_id, scrape_id, title, canonical_title, requisition_id, url, content_hash,
-                   location, location_type, workplace_type, city, state, country, region, department, functional_area,
-                   employment_type, seniority, language, salary_text, salary_min, salary_max, salary_currency,
-                   snippet, description, requirements, full_address, maps_url, posted_date,
-                   source_site_family, source_site_variant, source_confidence, extraction_method, raw_source_ref,
-                   first_seen, last_seen, job_version, is_active)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
-                (
-                    job_id, company_id, scrape_id, j.get("title", ""), j.get("canonical_title"),
-                    j.get("requisition_id"), job_url, content_hash, j.get("location"), j.get("location_type"),
-                    j.get("workplace_type"), j.get("city"), j.get("state"), j.get("country"), j.get("region"),
-                    j.get("department"), j.get("functional_area"), j.get("employment_type"), j.get("seniority"),
-                    j.get("language"), j.get("salary_text"), j.get("salary_min"), j.get("salary_max"),
-                    j.get("salary_currency"), j.get("snippet"), j.get("description"), reqs_json,
-                    j.get("full_address"), j.get("maps_url"), j.get("posted_date"), j.get("source_site_family"),
-                    j.get("source_site_variant"), j.get("source_confidence"), j.get("extraction_method"),
-                    j.get("raw_source_ref"), now, now, 1,
-                ),
-            )
+            await db.execute(insert_sql, {**job_payload, "id": job_id})
         await db.execute("DELETE FROM job_field_evidence WHERE job_id = ?", (job_id,))
         for evidence in field_evidence:
             await db.execute(
