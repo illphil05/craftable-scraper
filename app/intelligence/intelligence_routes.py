@@ -73,33 +73,35 @@ async def daily_digest():
 
 
 @router.post("/enrich/{job_id}")
-async def enrich_single(job_id: str):
+async def enrich_single(job_id: str, force: bool = False):
     job = await get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    snippet = job.get("snippet") or job.get("description") or ""
-    if not snippet:
-        raise HTTPException(status_code=422, detail="Job has no snippet or description to enrich")
 
-    from app.db import get_db as _get_db
-    db = await _get_db()
-    async with db.execute(
-        "SELECT js.system_name FROM job_systems js WHERE js.job_id = ?", (job_id,)
-    ) as cur:
-        existing_systems = [row[0] for row in await cur.fetchall()]
+    if not force and job.get("enriched_at"):
+        return {
+            "enriched": False,
+            "skipped": True,
+            "reason": "already enriched",
+            "enriched_at": job["enriched_at"],
+        }
+
+    text_content = job.get("description") or job.get("snippet") or ""
+    if not text_content:
+        raise HTTPException(status_code=422, detail="Job has no text content to enrich")
 
     await enrich_job(
         job_id=job_id,
         title=job.get("title", ""),
         company_name=job.get("company_name", ""),
-        snippet=snippet,
+        text_content=text_content,
     )
 
+    db = await get_db()
     async with db.execute(
-        "SELECT js.system_name FROM job_systems js WHERE js.job_id = ?", (job_id,)
+        "SELECT system_name FROM job_systems WHERE job_id = ?", (job_id,)
     ) as cur:
         systems = [row[0] for row in await cur.fetchall()]
-
     async with db.execute(
         "SELECT COUNT(*) FROM job_intelligence_bullets WHERE job_id = ?", (job_id,)
     ) as cur:

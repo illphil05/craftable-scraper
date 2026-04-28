@@ -6,6 +6,8 @@ import json
 from app.db import (
     get_db,
     get_enrichment_queue,
+    mark_job_enriched,
+    mark_job_enrichment_failed,
     save_job_bullets,
     save_job_systems,
     upsert_company_intelligence,
@@ -50,17 +52,20 @@ async def _aggregate_company_intelligence(company_name: str) -> None:
     )
 
 
-async def enrich_job(job_id: str, title: str, company_name: str, snippet: str) -> None:
-    systems = detect_systems(snippet)
+async def enrich_job(job_id: str, title: str, company_name: str, text_content: str) -> None:
+    systems = detect_systems(text_content)
     await save_job_systems(job_id, systems)
 
-    all_bullets = await extract_bullets(snippet)
+    all_bullets = await extract_bullets(text_content)
     high_bullets = [b for b in all_bullets if b.get("confidence") == "high"]
     await save_job_bullets(job_id, high_bullets)
 
+    await mark_job_enriched(job_id)
     if company_name:
-        await _aggregate_company_intelligence(company_name)
-
+        try:
+            await _aggregate_company_intelligence(company_name)
+        except Exception as exc:
+            log.error("Aggregation failed for company %s: %s", company_name, exc)
     log.info(
         "Enriched job %s (%s): %d systems, %d bullets",
         job_id, title, len(systems), len(high_bullets),
@@ -78,9 +83,13 @@ async def run_enrichment_batch() -> int:
                 job_id=job["id"],
                 title=job.get("title", ""),
                 company_name=job.get("company_name", ""),
-                snippet=job["snippet"],
+                text_content=job["text_content"],
             )
             count += 1
         except Exception as exc:
             log.error("Enrichment failed for job %s: %s", job["id"], exc)
+            try:
+                await mark_job_enrichment_failed(job["id"])
+            except Exception as mark_exc:
+                log.error("Failed to record enrichment failure for job %s: %s", job["id"], mark_exc)
     return count

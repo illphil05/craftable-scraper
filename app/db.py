@@ -271,6 +271,15 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             "taxonomy_version": "TEXT",
         },
     )
+    await _ensure_columns(
+        db,
+        "jobs",
+        {
+            "enriched_at": "TEXT",
+            "enrichment_attempts": "INTEGER DEFAULT 0",
+            "enrichment_failed_at": "TEXT",
+        },
+    )
 
     # Intelligence tables
     await db.execute("""
@@ -899,8 +908,6 @@ async def get_notes(company_id: str) -> list[dict]:
         return [dict(r) for r in await cur.fetchall()]
 
 
-# ── Stats ─────────────────────────────────────────────────────────────────────
-
 # ── Intelligence ──────────────────────────────────────────────────────────────
 
 async def save_job_systems(job_id: str, systems: list[str]) -> None:
@@ -983,28 +990,6 @@ async def list_company_intelligence(page: int = 1, limit: int = 50) -> dict:
     return {"companies": rows, "total": total, "page": page, "limit": limit}
 
 
-async def get_enrichment_queue(limit: int = 20) -> list[dict]:
-    """Jobs with a snippet but no intelligence bullets yet."""
-    db = await get_db()
-    sql = """
-        SELECT j.id, j.title, c.name as company_name, j.snippet
-        FROM jobs j
-        LEFT JOIN companies c ON j.company_id = c.id
-        LEFT JOIN job_intelligence_bullets jib ON j.id = jib.job_id
-        WHERE j.snippet IS NOT NULL AND jib.id IS NULL
-        LIMIT ?
-    """
-    async with db.execute(sql, (limit,)) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-
-
-async def mark_job_enriched(job_id: str) -> None:
-    """No-op placeholder — enrichment is signalled by rows in job_intelligence_bullets."""
-    pass
-
-
-# ── Stats ─────────────────────────────────────────────────────────────────────
-
 async def get_stats() -> dict:
     from app.site_adapters import adapter_count
     db = await get_db()
@@ -1021,3 +1006,44 @@ async def get_stats() -> dict:
         "recent_scrapes_24h": await _scalar("SELECT COUNT(*) FROM scrape_history WHERE created_at > datetime('now', '-1 day')"),
         "parsers_available": adapter_count(include_generic=True),
     }
+
+
+# ── Enrichment queue ──────────────────────────────────────────────────────────
+
+async def get_enrichment_queue(limit: int = 20) -> list[dict]:
+    """Jobs not yet enriched, with text content, capped at 3 attempts."""
+    db = await get_db()
+    sql = """
+        SELECT j.id, j.title, c.name as company_name,
+               COALESCE(j.description, j.snippet) as text_content
+        FROM jobs j
+        LEFT JOIN companies c ON j.company_id = c.id
+        WHERE (j.snippet IS NOT NULL OR j.description IS NOT NULL)
+          AND j.enriched_at IS NULL
+          AND (j.enrichment_attempts IS NULL OR j.enrichment_attempts < 3)
+        LIMIT ?
+    """
+    async with db.execute(sql, (limit,)) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def mark_job_enriched(job_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """UPDATE jobs SET enriched_at = CURRENT_TIMESTAMP,
+                          enrichment_attempts = COALESCE(enrichment_attempts, 0) + 1
+           WHERE id = ?""",
+        (job_id,),
+    )
+    await db.commit()
+
+
+async def mark_job_enrichment_failed(job_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """UPDATE jobs SET enrichment_failed_at = CURRENT_TIMESTAMP,
+                          enrichment_attempts = COALESCE(enrichment_attempts, 0) + 1
+           WHERE id = ?""",
+        (job_id,),
+    )
+    await db.commit()
