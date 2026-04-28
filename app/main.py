@@ -28,6 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from app.db import init_db, close_db
+from app.intelligence.intelligence_routes import router as intelligence_router
 from app.logging_config import get_logger, make_request_id, setup_logging
 from app.routes import router as api_router
 from app.scheduler import start_scheduler, stop_scheduler
@@ -85,6 +86,7 @@ app = FastAPI(title="Craftable Scraper Service", version="1.2.0", lifespan=lifes
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(api_router)
+app.include_router(intelligence_router, prefix="/api")
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────

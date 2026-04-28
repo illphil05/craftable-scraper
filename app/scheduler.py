@@ -13,6 +13,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.logging_config import get_logger
 from app import db
+from app.intelligence.enricher import run_enrichment_batch
 from app.scraper import scrape_url
 
 log = get_logger("scheduler")
@@ -69,8 +70,15 @@ def start_scheduler() -> None:
         replace_existing=True,
         max_instances=1,
     )
+    _scheduler.add_job(
+        run_enrichment_batch,
+        trigger=IntervalTrigger(minutes=5),
+        id="enrichment_batch",
+        replace_existing=True,
+        max_instances=1,
+    )
     _scheduler.start()
-    log.info("Scheduler started — re-scraping every %dh", _INTERVAL_HOURS)
+    log.info("Scheduler started — re-scraping every %dh, enrichment every 5m", _INTERVAL_HOURS)
 
 
 def stop_scheduler() -> None:
