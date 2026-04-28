@@ -59,8 +59,10 @@ class PaycomAdapter(SiteAdapter):
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 r = await client.get(f"{api_base}/api/ats/company-name", headers=auth_headers)
+                r.raise_for_status()
                 company_name = r.json().get("companyName", "")
-            except Exception:
+            except Exception as exc:
+                log.debug("Paycom company-name fetch failed: %s", exc)
                 company_name = ""
 
             previews = []
@@ -124,8 +126,8 @@ class PaycomAdapter(SiteAdapter):
                         job["educationLevel"] = detail.get("educationLevel", "")
                         job["description_full"] = detail.get("description", "")
                         job["qualifications"] = detail.get("qualifications", "")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("Paycom detail fetch failed for job %s: %s", job_id, exc)
                 if i < len(capped) - 1:
                     await asyncio.sleep(detail_delay)
 
