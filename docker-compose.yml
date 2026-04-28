@@ -8,6 +8,7 @@ services:
       - SCRAPER_API_KEY=${SCRAPER_API_KEY}
       - SITE_PASSWORD=${SITE_PASSWORD}
       - SCRAPER_DB_PATH=/data/scraper.db
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - /opt/craftable-scraper/data:/data
     restart: unless-stopped
