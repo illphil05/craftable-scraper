@@ -66,7 +66,7 @@ async def daily_digest():
         surging = [dict(r) for r in await cur.fetchall()]
 
     return {
-        "new_companies_24h": new_companies,
+        "unenriched_companies_24h": new_companies,
         "new_roles_24h": new_roles,
         "hiring_surge": surging,
     }
