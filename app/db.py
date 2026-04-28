@@ -1030,8 +1030,7 @@ async def get_enrichment_queue(limit: int = 20) -> list[dict]:
 async def mark_job_enriched(job_id: str) -> None:
     db = await get_db()
     await db.execute(
-        """UPDATE jobs SET enriched_at = CURRENT_TIMESTAMP,
-                          enrichment_attempts = COALESCE(enrichment_attempts, 0) + 1
+        """UPDATE jobs SET enriched_at = CURRENT_TIMESTAMP
            WHERE id = ?""",
         (job_id,),
     )
