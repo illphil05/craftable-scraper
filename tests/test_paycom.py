@@ -89,6 +89,23 @@ def test_parse_deduplicates():
     job = make_job()
     result = parse(make_payload([job, job]), url="", company_name="")
     assert len(result) == 1
+    assert result[0]["title"] == "Restaurant Manager"
+
+
+def test_parse_malformed_json():
+    result = parse("{not valid json}", url="", company_name="")
+    assert result == []
+
+
+def test_parse_location_none():
+    result = parse(make_payload([make_job(city="", locations="")]), url="", company_name="")
+    assert result[0]["location"] is None
+
+
+def test_parse_snippet_none():
+    result = parse(make_payload([make_job(description_full="", description="")]),
+                   url="", company_name="")
+    assert result[0]["snippet"] is None
 
 
 def test_adapter_confidence_paycom_url():

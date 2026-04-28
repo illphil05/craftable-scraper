@@ -1,12 +1,16 @@
 import json
+import re
 
 from bs4 import BeautifulSoup
 
 from app.parsers import register_parser
 
+_PORTAL_KEY_RE = re.compile(r"^[A-F0-9]{32}$", re.IGNORECASE)
+
 
 @register_parser("paycomonline.net", [])
 def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
+    html = html.lstrip("\ufeff")
     if not html or html[0] not in ("{", "["):
         return []
 
@@ -17,6 +21,8 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
 
     jobs_raw = data.get("jobs", [])
     portal_key = data.get("portal_key", "")
+    if not _PORTAL_KEY_RE.match(portal_key):
+        portal_key = ""
     name = company_name or data.get("company_name") or ""
 
     results = []

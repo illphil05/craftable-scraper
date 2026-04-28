@@ -48,7 +48,11 @@ class PaycomAdapter(SiteAdapter):
         jwt = jwt_match.group(1)
 
         api_base_match = re.search(r'atsPortalMantleServiceUrl\\":\\"(https://[^\\]+)', html)
-        api_base = api_base_match.group(1).rstrip("/") if api_base_match else API_BASE_URL
+        if api_base_match:
+            candidate = api_base_match.group(1).rstrip("/")
+            api_base = candidate if "paycomonline.net" in candidate else API_BASE_URL
+        else:
+            api_base = API_BASE_URL
 
         auth_headers = {**_API_HEADERS, "Authorization": f"Bearer {jwt}"}
 
@@ -91,11 +95,18 @@ class PaycomAdapter(SiteAdapter):
                 total = data.get("jobPostingPreviewsCount", 0)
                 previews.extend(batch_jobs)
                 skip += len(batch_jobs)
-                if skip >= total or not batch_jobs:
+                if skip >= total or not batch_jobs or len(previews) > 10_000:
                     break
 
-            detail_limit = int(os.environ.get("PAYCOM_DETAIL_LIMIT", "50"))
-            detail_delay = float(os.environ.get("PAYCOM_DETAIL_DELAY", "0.2"))
+            try:
+                detail_limit = int(os.environ.get("PAYCOM_DETAIL_LIMIT", "50"))
+            except (ValueError, TypeError):
+                detail_limit = 50
+            try:
+                detail_delay = float(os.environ.get("PAYCOM_DETAIL_DELAY", "0.2"))
+            except (ValueError, TypeError):
+                detail_delay = 0.2
+            detail_delay = max(0.05, min(detail_delay, 5.0))
             capped = previews[:detail_limit]
             for i, job in enumerate(capped):
                 job_id = job.get("jobId")
