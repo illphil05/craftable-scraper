@@ -40,7 +40,7 @@ async def daily_digest():
         new_companies = [dict(r) for r in await cur.fetchall()]
 
     async with db.execute(
-        """SELECT c.name, COUNT(j.id) as new_jobs, ci.systems_json, ci.bullets_json
+        """SELECT c.name, COUNT(j.id) as new_jobs
            FROM jobs j
            JOIN companies c ON j.company_id = c.id
            LEFT JOIN company_intelligence ci ON c.name = ci.company_name

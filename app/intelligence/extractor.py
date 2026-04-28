@@ -51,7 +51,7 @@ def detect_systems(text: str) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     for name in systems:
-        pattern = re.escape(name)
+        pattern = r"\b" + re.escape(name) + r"\b"
         if re.search(pattern, text, re.IGNORECASE):
             key = name.lower()
             if key not in seen:
