@@ -23,7 +23,7 @@ def test_detect_systems_word_boundary():
     from app.intelligence.extractor import detect_systems
     text = "Excellent communication skills required. Excellence in teamwork."
     result = detect_systems(text)
-    assert "Excel" not in result
+    assert not any("excel" in s.lower() for s in result)
 
 
 def test_detect_systems_case_insensitive():
@@ -125,7 +125,9 @@ async def test_daily_digest_keys(monkeypatch, tmp_path):
         monkeypatch.setattr(db_mod, "_conn_lock", None)
     await db_mod.init_db()
 
+    import app.main as main_module
     from app.main import app as test_app
+    monkeypatch.setattr(main_module, "API_KEY", "test-api-key")
 
     try:
         async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
