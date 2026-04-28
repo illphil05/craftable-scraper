@@ -70,6 +70,13 @@ async def close_db() -> None:
 
 async def init_db() -> None:
     db = await get_db()
+    # Pre-flight: if jobs table exists without content_hash, add it before
+    # executescript tries to create idx_jobs_hash on that column.
+    async with db.execute("PRAGMA table_info(jobs)") as cur:
+        existing_cols = {row[1] for row in await cur.fetchall()}
+    if existing_cols and "content_hash" not in existing_cols:
+        await db.execute("ALTER TABLE jobs ADD COLUMN content_hash TEXT")
+        await db.commit()
     await db.executescript(SCHEMA_SQL)
     await _run_migrations(db)
     await db.commit()
