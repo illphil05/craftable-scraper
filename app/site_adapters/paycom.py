@@ -1,6 +1,9 @@
+from app.logging_config import get_logger
 from app.parsers.paycom import parse
 from app.site_adapters import register_adapter
 from app.site_adapters.base import SiteAdapter, SiteManifest
+
+log = get_logger("paycom")
 
 API_BASE_URL = "https://portal-applicant-tracking.us-cent.paycomonline.net"
 
