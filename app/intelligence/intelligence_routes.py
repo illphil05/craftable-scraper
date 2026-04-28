@@ -1,7 +1,7 @@
 """Intelligence API routes."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.db import get_company_intelligence, get_db, get_job, list_company_intelligence
 from app.intelligence.enricher import enrich_job
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/intelligence")
 
 
 @router.get("/companies")
-async def companies_list(page: int = 1, limit: int = 50):
+async def companies_list(page: int = 1, limit: int = Query(default=50, ge=1, le=500)):
     return await list_company_intelligence(page=page, limit=limit)
 
 
