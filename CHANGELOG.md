@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1.0] - 2026-04-28
+
+### Fixed
+
+- `detect_systems` now uses `\b` word-boundary matching — previously "Excel" matched
+  "excellent" and "Toast" matched "toasty"; now matches whole words only
+- `daily_digest` no longer returns full `systems_json`/`bullets_json` blobs in the
+  `new_roles_24h` list (could be megabytes for active companies); count only
+- `enrichment_attempts` now increments only on failure, not on success — counter
+  correctly reflects retry count rather than total run count
+- Paycom detail-fetch errors logged via `log.debug` instead of silently swallowed;
+  company-name fetch now calls `raise_for_status()` before parsing JSON
+- Renamed `new_companies_24h` → `unenriched_companies_24h` in digest response to
+  accurately describe what it returns (companies with new jobs but no intelligence yet)
+
+### Added
+
+- Test coverage for `detect_systems`, `extract_bullets`, and `daily_digest` endpoint
+
+
 ## [1.0.0.0] - 2026-04-28
 
 ### Added
