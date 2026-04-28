@@ -271,6 +271,48 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             "taxonomy_version": "TEXT",
         },
     )
+    await _ensure_columns(
+        db,
+        "jobs",
+        {
+            "enriched_at": "TEXT",
+            "enrichment_attempts": "INTEGER DEFAULT 0",
+            "enrichment_failed_at": "TEXT",
+        },
+    )
+
+    # Intelligence tables
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS job_systems (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            system_name TEXT NOT NULL,
+            detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS job_intelligence_bullets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            bullet TEXT NOT NULL,
+            confidence TEXT NOT NULL DEFAULT 'high',
+            extracted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS company_intelligence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT NOT NULL UNIQUE,
+            systems_json TEXT DEFAULT '[]',
+            bullets_json TEXT DEFAULT '[]',
+            hiring_velocity_json TEXT DEFAULT '{}',
+            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_job_systems_job_id ON job_systems(job_id)")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_job_bullets_job_id ON job_intelligence_bullets(job_id)")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_company_intelligence_name ON company_intelligence(company_name)")
 
 
 async def _ensure_columns(db: aiosqlite.Connection, table: str, columns: dict[str, str]) -> None:
@@ -866,7 +908,87 @@ async def get_notes(company_id: str) -> list[dict]:
         return [dict(r) for r in await cur.fetchall()]
 
 
-# ── Stats ─────────────────────────────────────────────────────────────────────
+# ── Intelligence ──────────────────────────────────────────────────────────────
+
+async def save_job_systems(job_id: str, systems: list[str]) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM job_systems WHERE job_id = ?", (job_id,))
+    for name in systems:
+        await db.execute(
+            "INSERT INTO job_systems (job_id, system_name) VALUES (?, ?)",
+            (job_id, name),
+        )
+    await db.commit()
+
+
+async def save_job_bullets(job_id: str, bullets: list[dict]) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM job_intelligence_bullets WHERE job_id = ?", (job_id,))
+    for b in bullets:
+        await db.execute(
+            "INSERT INTO job_intelligence_bullets (job_id, category, bullet, confidence) VALUES (?, ?, ?, ?)",
+            (job_id, b.get("category", ""), b.get("bullet", ""), b.get("confidence", "high")),
+        )
+    await db.commit()
+
+
+async def get_company_intelligence(company_name: str) -> dict | None:
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM company_intelligence WHERE company_name = ?", (company_name,)
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    for field in ("systems_json", "bullets_json", "hiring_velocity_json"):
+        if d.get(field):
+            try:
+                d[field] = json.loads(d[field])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return d
+
+
+async def upsert_company_intelligence(
+    company_name: str,
+    systems_json: str,
+    bullets_json: str,
+    hiring_velocity_json: str,
+) -> None:
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO company_intelligence (company_name, systems_json, bullets_json, hiring_velocity_json, last_updated)
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(company_name) DO UPDATE SET
+               systems_json = excluded.systems_json,
+               bullets_json = excluded.bullets_json,
+               hiring_velocity_json = excluded.hiring_velocity_json,
+               last_updated = CURRENT_TIMESTAMP""",
+        (company_name, systems_json, bullets_json, hiring_velocity_json),
+    )
+    await db.commit()
+
+
+async def list_company_intelligence(page: int = 1, limit: int = 50) -> dict:
+    db = await get_db()
+    offset = (page - 1) * limit
+    async with db.execute(
+        "SELECT * FROM company_intelligence ORDER BY last_updated DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ) as cur:
+        rows = [dict(r) for r in await cur.fetchall()]
+    async with db.execute("SELECT COUNT(*) FROM company_intelligence") as cur:
+        total = (await cur.fetchone())[0]
+    for row in rows:
+        for field in ("systems_json", "bullets_json", "hiring_velocity_json"):
+            if row.get(field):
+                try:
+                    row[field] = json.loads(row[field])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    return {"companies": rows, "total": total, "page": page, "limit": limit}
+
 
 async def get_stats() -> dict:
     from app.site_adapters import adapter_count
@@ -884,3 +1006,44 @@ async def get_stats() -> dict:
         "recent_scrapes_24h": await _scalar("SELECT COUNT(*) FROM scrape_history WHERE created_at > datetime('now', '-1 day')"),
         "parsers_available": adapter_count(include_generic=True),
     }
+
+
+# ── Enrichment queue ──────────────────────────────────────────────────────────
+
+async def get_enrichment_queue(limit: int = 20) -> list[dict]:
+    """Jobs not yet enriched, with text content, capped at 3 attempts."""
+    db = await get_db()
+    sql = """
+        SELECT j.id, j.title, c.name as company_name,
+               COALESCE(j.description, j.snippet) as text_content
+        FROM jobs j
+        LEFT JOIN companies c ON j.company_id = c.id
+        WHERE (j.snippet IS NOT NULL OR j.description IS NOT NULL)
+          AND j.enriched_at IS NULL
+          AND (j.enrichment_attempts IS NULL OR j.enrichment_attempts < 3)
+        LIMIT ?
+    """
+    async with db.execute(sql, (limit,)) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def mark_job_enriched(job_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """UPDATE jobs SET enriched_at = CURRENT_TIMESTAMP,
+                          enrichment_attempts = COALESCE(enrichment_attempts, 0) + 1
+           WHERE id = ?""",
+        (job_id,),
+    )
+    await db.commit()
+
+
+async def mark_job_enrichment_failed(job_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """UPDATE jobs SET enrichment_failed_at = CURRENT_TIMESTAMP,
+                          enrichment_attempts = COALESCE(enrichment_attempts, 0) + 1
+           WHERE id = ?""",
+        (job_id,),
+    )
+    await db.commit()
