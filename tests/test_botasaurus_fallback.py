@@ -1,5 +1,3 @@
-"""Tests for botasaurus fallback scraper."""
-import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,15 +15,8 @@ class _FakeAdapter:
         return []
 
 
-def _make_fake_driver(html: str):
-    driver = MagicMock()
-    driver.page_html = html
-    return driver
-
-
 @pytest.mark.asyncio
 async def test_botasaurus_scrape_returns_jobs():
-    """botasaurus_scrape returns parsed jobs when driver succeeds."""
     fake_html = "<html><job>Chef</job></html>"
 
     with patch("app.botasaurus_scraper._sync_botasaurus_get", return_value=fake_html):
@@ -44,7 +35,6 @@ async def test_botasaurus_scrape_returns_jobs():
 
 @pytest.mark.asyncio
 async def test_botasaurus_scrape_empty_html_returns_zero_jobs():
-    """botasaurus_scrape with no matching HTML returns empty jobs list, no error."""
     with patch("app.botasaurus_scraper._sync_botasaurus_get", return_value="<html></html>"):
         from app.botasaurus_scraper import botasaurus_scrape
         result = await botasaurus_scrape(
@@ -61,7 +51,6 @@ async def test_botasaurus_scrape_empty_html_returns_zero_jobs():
 
 @pytest.mark.asyncio
 async def test_botasaurus_scrape_driver_error_raises():
-    """botasaurus_scrape propagates driver exceptions so caller can handle."""
     with patch("app.botasaurus_scraper._sync_botasaurus_get", side_effect=RuntimeError("blocked")):
         from app.botasaurus_scraper import botasaurus_scrape
         with pytest.raises(RuntimeError, match="blocked"):

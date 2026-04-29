@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 
 from app.logging_config import get_logger
@@ -9,12 +7,6 @@ log = get_logger("botasaurus_scraper")
 
 
 def _sync_botasaurus_get(url: str) -> str:
-    """Fetch *url* with botasaurus Driver and return rendered HTML.
-
-    Runs synchronously — call via asyncio.to_thread() from async code.
-    Uses google_get() which routes the request through Google referrer
-    to bypass Cloudflare challenges.
-    """
     from botasaurus.browser import Driver
 
     driver = Driver(headless=True, block_images=True)
@@ -31,7 +23,6 @@ async def botasaurus_scrape(
     company_name: str | None,
     request_id: str,
 ) -> dict:
-    """Async botasaurus fallback — runs sync driver in thread, parses with existing adapter."""
     log.info("Trying botasaurus fallback for '%s' [%s]", url, request_id)
     html = await asyncio.to_thread(_sync_botasaurus_get, url)
     jobs = adapter.parse_jobs(html, url, company_name, match_confidence=0.7)
