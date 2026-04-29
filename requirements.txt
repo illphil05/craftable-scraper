@@ -12,3 +12,4 @@ jinja2==3.1.4
 pytest==8.3.2
 pytest-asyncio==0.23.8
 anthropic==0.50.0
+botasaurus
