@@ -17,6 +17,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 from app.logging_config import get_logger
 from app.site_adapters import get_adapter
+from app.botasaurus_scraper import botasaurus_scrape
 
 log = get_logger("scraper")
 
@@ -109,12 +110,19 @@ async def scrape_url(
                 log.debug("Retrying in %.1fs [%s]", delay, request_id)
                 await asyncio.sleep(delay)
 
-    log.error("All %d scrape attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
+    log.error("All %d Playwright attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
+
+    try:
+        return await botasaurus_scrape(url, adapter, company_name, request_id)
+    except Exception as bota_exc:
+        log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
+        last_error = str(bota_exc)
+
     return {
         "jobs": [],
         "company_name": company_name or "",
         "url": url,
-        "method": f"playwright:{adapter.manifest.family}",
+        "method": f"botasaurus:{adapter.manifest.family}",
         "adapter_family": adapter.manifest.family,
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": 0,

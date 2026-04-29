@@ -60,3 +60,57 @@ async def test_botasaurus_scrape_driver_error_raises():
                 company_name="Acme",
                 request_id="test-3",
             )
+
+
+@pytest.mark.asyncio
+async def test_scrape_url_falls_back_to_botasaurus_when_playwright_fails():
+    from app import scraper
+
+    fake_adapter = _FakeAdapter()
+
+    with (
+        patch("app.scraper.get_adapter", return_value=fake_adapter),
+        patch("app.scraper._scrape_attempt", side_effect=RuntimeError("playwright blocked")),
+        patch("app.scraper.botasaurus_scrape") as mock_bota,
+    ):
+        mock_bota.return_value = {
+            "jobs": [{"title": "Chef", "company_name": "Acme"}],
+            "company_name": "Acme",
+            "url": "https://boards.greenhouse.io/acme",
+            "method": "botasaurus:greenhouse",
+            "adapter_family": "greenhouse",
+            "adapter_variant": "base",
+            "jobs_count": 1,
+            "error": None,
+        }
+        result = await scraper.scrape_url(
+            "https://boards.greenhouse.io/acme",
+            company_name="Acme",
+            timeout=5000,
+        )
+
+    mock_bota.assert_called_once()
+    assert result["jobs_count"] == 1
+    assert result["method"] == "botasaurus:greenhouse"
+    assert result["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_scrape_url_returns_error_when_both_fail():
+    from app import scraper
+
+    fake_adapter = _FakeAdapter()
+
+    with (
+        patch("app.scraper.get_adapter", return_value=fake_adapter),
+        patch("app.scraper._scrape_attempt", side_effect=RuntimeError("playwright blocked")),
+        patch("app.scraper.botasaurus_scrape", side_effect=RuntimeError("botasaurus blocked")),
+    ):
+        result = await scraper.scrape_url(
+            "https://boards.greenhouse.io/acme",
+            company_name="Acme",
+            timeout=5000,
+        )
+
+    assert result["jobs_count"] == 0
+    assert result["error"] is not None
