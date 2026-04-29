@@ -17,7 +17,7 @@ import socket
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Form, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -227,7 +227,7 @@ async def api_info():
 
 @app.post("/scrape", response_model=ScrapeResponse)
 @limiter.limit("10/minute")
-async def scrape(req: ScrapeRequest, request: Request, x_api_key: str = Header(default="")):
+async def scrape(request: Request, x_api_key: str = Header(default=""), req: ScrapeRequest = Body(...)):
     _require_auth(request, x_api_key)
 
     if not req.url or not req.url.startswith(("http://", "https://")):
