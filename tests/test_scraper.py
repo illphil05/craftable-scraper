@@ -22,6 +22,8 @@ class _FakeAdapter:
                 "variant": "base",
                 "wait_selectors": tuple(wait_selectors),
                 "detail_page_support": detail_page_support,
+                "needs_residential_proxy": False,
+                "api_capture_support": False,
             },
         )()
         self._jobs = jobs or [{"title": f"{family.title()} Job", "company_name": "Example"}]

@@ -21,6 +21,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 from app.logging_config import get_logger
 from app.site_adapters import get_adapter
+from app.botasaurus_scraper import botasaurus_scrape
 
 
 def _brightdata_browser_ws() -> str | None:
@@ -211,12 +212,24 @@ async def scrape_url(
                 await asyncio.sleep(delay)
 
     final_ec = _classify_error(last_exc)
-    log.error("All scrape attempts failed for '%s': %s [%s]", url, last_error, request_id)
+    log.error("All %d Playwright attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
+
+    if not getattr(adapter.manifest, "api_capture_support", False):
+        try:
+            async with _BROWSER_SEM:
+                return await botasaurus_scrape(url, adapter, company_name, request_id, timeout=timeout / 1000)
+        except Exception as bota_exc:
+            log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
+            last_error = str(bota_exc)
+            final_ec = _classify_error(bota_exc)
+    else:
+        log.info("Skipping botasaurus for API-capture adapter '%s' [%s]", adapter.manifest.family, request_id)
+
     return {
         "jobs": [],
         "company_name": company_name or "",
         "url": url,
-        "method": f"playwright:{adapter.manifest.family}",
+        "method": f"botasaurus:{adapter.manifest.family}",
         "adapter_family": adapter.manifest.family,
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": 0,
