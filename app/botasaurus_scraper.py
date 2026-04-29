@@ -5,6 +5,8 @@ from app.site_adapters.base import SiteAdapter
 
 log = get_logger("botasaurus_scraper")
 
+_MATCH_CONFIDENCE = 0.7
+
 
 def _sync_botasaurus_get(url: str) -> str:
     from botasaurus.browser import Driver
@@ -22,10 +24,11 @@ async def botasaurus_scrape(
     adapter: SiteAdapter,
     company_name: str | None,
     request_id: str,
+    timeout: float = 60.0,
 ) -> dict:
     log.info("Trying botasaurus fallback for '%s' [%s]", url, request_id)
-    html = await asyncio.to_thread(_sync_botasaurus_get, url)
-    jobs = adapter.parse_jobs(html, url, company_name, match_confidence=0.7)
+    html = await asyncio.wait_for(asyncio.to_thread(_sync_botasaurus_get, url), timeout=timeout)
+    jobs = adapter.parse_jobs(html, url, company_name, match_confidence=_MATCH_CONFIDENCE)
     log.info(
         "Botasaurus fallback parsed %d jobs from '%s' [%s]",
         len(jobs), url, request_id,

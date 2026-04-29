@@ -112,11 +112,15 @@ async def scrape_url(
 
     log.error("All %d Playwright attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
 
-    try:
-        return await botasaurus_scrape(url, adapter, company_name, request_id)
-    except Exception as bota_exc:
-        log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
-        last_error = str(bota_exc)
+    if not getattr(adapter.manifest, "api_capture_support", False):
+        try:
+            async with _BROWSER_SEM:
+                return await botasaurus_scrape(url, adapter, company_name, request_id, timeout=timeout / 1000)
+        except Exception as bota_exc:
+            log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
+            last_error = str(bota_exc)
+    else:
+        log.info("Skipping botasaurus for API-capture adapter '%s' [%s]", adapter.manifest.family, request_id)
 
     return {
         "jobs": [],
