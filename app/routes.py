@@ -54,6 +54,7 @@ class SaveScrapeRequest(BaseModel):
     jobs_found: int
     elapsed_ms: int
     error: str | None = None
+    error_code: str | None = None
     html_size: int | None = None
     artifact_refs: dict[str, Any] = Field(default_factory=dict)
     deep: bool = False
@@ -214,6 +215,7 @@ async def save_scrape(body: SaveScrapeRequest):
         jobs_found=body.jobs_found,
         elapsed_ms=body.elapsed_ms,
         error=body.error,
+        error_code=body.error_code,
         html_size=body.html_size,
         artifact_refs=body.artifact_refs,
         deep=body.deep,

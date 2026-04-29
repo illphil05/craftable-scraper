@@ -19,6 +19,7 @@ class SiteManifest:
     confidence_rules: dict[str, float] = field(default_factory=dict)
     dom_markers: tuple[str, ...] = ()
     api_markers: tuple[str, ...] = ()
+    needs_residential_proxy: bool = False
 
 
 class SiteAdapter:
