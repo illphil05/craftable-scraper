@@ -29,6 +29,7 @@ class PaycomAdapter(SiteAdapter):
         dom_markers=("paycomonline.net", "sessionJWT"),
         api_markers=("portal-applicant-tracking",),
         confidence_rules={"url_pattern": 0.97, "dom_marker": 0.02},
+        needs_residential_proxy=True,
     )
     parser = staticmethod(parse)
 

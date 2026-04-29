@@ -177,6 +177,7 @@ class ScrapeResponse(BaseModel):
     jobs_count: int
     elapsed_ms: int
     error: str | None = None
+    error_code: str | None = None
     html_sample: str | None = None
     html_size: int | None = None
     artifact_refs: dict | None = None
@@ -265,6 +266,7 @@ async def scrape(request: Request, x_api_key: str = Header(default=""), req: Scr
         jobs_count=result["jobs_count"],
         elapsed_ms=elapsed,
         error=result.get("error"),
+        error_code=result.get("error_code"),
         html_sample=result.get("html_sample"),
         html_size=result.get("html_size"),
         artifact_refs={

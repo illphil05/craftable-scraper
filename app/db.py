@@ -233,6 +233,7 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             "adapter_family": "TEXT",
             "adapter_variant": "TEXT",
             "artifact_refs": "TEXT",
+            "error_code": "TEXT",
         },
     )
     await _ensure_columns(
@@ -487,11 +488,12 @@ async def save_scrape(
     html_size: int | None,
     artifact_refs: dict | None,
     deep: bool,
+    error_code: str | None = None,
 ) -> str:
     db = await get_db()
     scrape_id = _uuid()
     await db.execute(
-        "INSERT INTO scrape_history (id, company_id, url, parser_used, adapter_family, adapter_variant, jobs_found, elapsed_ms, error, html_size, artifact_refs, deep, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO scrape_history (id, company_id, url, parser_used, adapter_family, adapter_variant, jobs_found, elapsed_ms, error, error_code, html_size, artifact_refs, deep, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             scrape_id,
             company_id,
@@ -502,6 +504,7 @@ async def save_scrape(
             jobs_found,
             elapsed_ms,
             error,
+            error_code,
             html_size,
             json.dumps(artifact_refs or {}),
             int(deep),

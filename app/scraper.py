@@ -11,13 +11,23 @@ Improvements over v1:
 from __future__ import annotations
 
 import asyncio
+import os
 import random
+import re
+import time
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 from app.logging_config import get_logger
 from app.site_adapters import get_adapter
 from app.botasaurus_scraper import botasaurus_scrape
+
+
+def _brightdata_browser_ws() -> str | None:
+    """Return BrightData Browser API websocket URL if configured."""
+    return os.environ.get("BRIGHTDATA_BROWSER_WS") or None
+
 
 log = get_logger("scraper")
 
@@ -32,6 +42,72 @@ DEEP_PAGE_TIMEOUT = 15_000
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0   # seconds
 _RETRY_MAX_DELAY = 8.0
+
+# ── Error codes ───────────────────────────────────────────────────────────────
+EC_IP_BLOCKED = "ip_blocked"
+EC_URL_NOT_FOUND = "url_not_found"
+EC_CAPTCHA = "captcha_detected"
+EC_TIMEOUT = "timeout"
+EC_PARSE_FAILURE = "parse_failure"
+EC_NETWORK_ERROR = "network_error"
+
+_NON_RETRYABLE = {EC_IP_BLOCKED, EC_URL_NOT_FOUND}
+
+# ── Circuit breaker ───────────────────────────────────────────────────────────
+_CB_TTL = float(os.environ.get("CB_TTL_SECONDS", "3600"))  # 1 hour default
+_circuit_breaker: dict[str, tuple[str, float]] = {}
+
+
+def _domain(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def _cb_check(url: str) -> tuple[bool, str]:
+    """Return (blocked, error_code). True if the domain circuit is open."""
+    d = _domain(url)
+    entry = _circuit_breaker.get(d)
+    if entry:
+        ec, ts = entry
+        if time.monotonic() - ts < _CB_TTL:
+            return True, ec
+        del _circuit_breaker[d]
+    return False, ""
+
+
+def _cb_trip(url: str, error_code: str) -> None:
+    d = _domain(url)
+    _circuit_breaker[d] = (error_code, time.monotonic())
+    log.warning("Circuit breaker tripped for '%s': %s", d, error_code)
+
+
+def _classify_error(exc: BaseException | None, html: str = "") -> str:
+    """Map an exception (or 0-job HTML) to a structured error code."""
+    if isinstance(exc, PlaywrightTimeout):
+        return EC_TIMEOUT
+
+    exc_str = str(exc) if exc else ""
+
+    if "ERR_HTTP_RESPONSE_CODE_FAILURE" in exc_str:
+        m = re.search(r"(\d{3})", exc_str)
+        if m:
+            status = int(m.group(1))
+            if status == 404:
+                return EC_URL_NOT_FOUND
+            if status in (403, 429, 503):
+                return EC_IP_BLOCKED
+        return EC_NETWORK_ERROR
+
+    if "net::" in exc_str or "connection" in exc_str.lower() or "unreachable" in exc_str.lower():
+        return EC_NETWORK_ERROR
+
+    if html:
+        lower = html.lower()
+        if len(html) < 800 and any(w in lower for w in ("blocked", "access denied", "403")):
+            return EC_IP_BLOCKED
+        if any(w in lower for w in ("captcha", "are you a robot", "cloudflare challenge", "security check")):
+            return EC_CAPTCHA
+
+    return EC_PARSE_FAILURE
 
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -80,7 +156,23 @@ async def scrape_url(
     adapter = get_adapter(url)
     parser_name = adapter.manifest.family
 
+    blocked, cb_ec = _cb_check(url)
+    if blocked:
+        log.warning("Circuit breaker open for '%s' (%s) — skipping scrape [%s]", url, cb_ec, request_id)
+        return {
+            "jobs": [],
+            "company_name": company_name or "",
+            "url": url,
+            "method": f"playwright:{adapter.manifest.family}",
+            "adapter_family": adapter.manifest.family,
+            "adapter_variant": adapter.manifest.variant,
+            "jobs_count": 0,
+            "error": f"Domain temporarily blocked ({cb_ec}). Skipping — will retry after cooldown.",
+            "error_code": cb_ec,
+        }
+
     last_error: str | None = None
+    last_exc: BaseException | None = None
 
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
@@ -97,19 +189,29 @@ async def scrape_url(
             )
             if attempt > 1:
                 log.info("'%s' scrape succeeded on attempt %d [%s]", url, attempt, request_id)
+            # Trip CB on soft block (0 jobs + error_code set by _scrape_attempt)
+            if result.get("error_code") in _NON_RETRYABLE:
+                _cb_trip(url, result["error_code"])
             return result
         except Exception as exc:
             last_error = str(exc)
+            last_exc = exc
+            ec = _classify_error(exc)
             error_type = "timeout" if isinstance(exc, PlaywrightTimeout) else "error"
             log.warning(
                 "Scrape attempt %d/%d %s for '%s': %s [%s]",
                 attempt, _MAX_RETRIES, error_type, url, last_error, request_id,
             )
+            if ec in _NON_RETRYABLE:
+                log.info("Non-retryable error '%s' on attempt %d for '%s' — stopping [%s]", ec, attempt, url, request_id)
+                _cb_trip(url, ec)
+                break
             if attempt < _MAX_RETRIES:
                 delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 0.5), _RETRY_MAX_DELAY)
                 log.debug("Retrying in %.1fs [%s]", delay, request_id)
                 await asyncio.sleep(delay)
 
+    final_ec = _classify_error(last_exc)
     log.error("All %d Playwright attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
 
     if not getattr(adapter.manifest, "api_capture_support", False):
@@ -119,6 +221,7 @@ async def scrape_url(
         except Exception as bota_exc:
             log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
             last_error = str(bota_exc)
+            final_ec = _classify_error(bota_exc)
     else:
         log.info("Skipping botasaurus for API-capture adapter '%s' [%s]", adapter.manifest.family, request_id)
 
@@ -131,7 +234,7 @@ async def scrape_url(
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": 0,
         "error": last_error,
-        "error_type": "parse_failure",
+        "error_code": final_ec,
     }
 
 
@@ -151,17 +254,24 @@ async def _scrape_attempt(
     can retry."""
     selectors = list(adapter.manifest.wait_selectors)
 
+    use_remote_browser = adapter.manifest.needs_residential_proxy and bool(_brightdata_browser_ws())
+
     async with _BROWSER_SEM:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
+            if use_remote_browser:
+                ws_url = _brightdata_browser_ws()
+                log.debug("Using BrightData Browser API for %s [%s]", adapter.manifest.family, request_id)
+                browser = await p.chromium.connect_over_cdp(ws_url)
+            else:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
             context = await browser.new_context(
                 user_agent=user_agent,
                 viewport={"width": 1366, "height": 768},
@@ -172,12 +282,21 @@ async def _scrape_attempt(
             )
             page_context = await adapter.prepare_page(page, request_id)
 
-            # Navigate — fall back to domcontentloaded if networkidle times out
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=timeout)
-            except PlaywrightTimeout:
-                log.debug("networkidle timeout, falling back to domcontentloaded [%s]", request_id)
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            # Navigate — remote browsers skip networkidle (BrightData handles JS rendering)
+            if use_remote_browser:
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                except Exception as exc:
+                    if "ERR_HTTP_RESPONSE_CODE_FAILURE" in str(exc):
+                        log.debug("Non-2xx HTTP status from remote browser (proceeding): %s [%s]", exc, request_id)
+                    else:
+                        raise
+            else:
+                try:
+                    await page.goto(url, wait_until="networkidle", timeout=timeout)
+                except PlaywrightTimeout:
+                    log.debug("networkidle timeout, falling back to domcontentloaded [%s]", request_id)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
             # Wait for ATS-specific selector
             await _wait_for_any_selector(page, selectors)
@@ -190,7 +309,7 @@ async def _scrape_attempt(
             except Exception as exc:
                 log.debug("Scroll error (non-fatal): %s [%s]", exc, request_id)
 
-            await page.wait_for_timeout(2_000)
+            await page.wait_for_timeout(5_000 if use_remote_browser else 2_000)
             initial_html = await page.content()
             initial_finalized_html = await adapter.finalize_html(page, initial_html, page_context, request_id)
             resolved_adapter = get_adapter(
@@ -234,6 +353,13 @@ async def _scrape_attempt(
 
             await browser.close()
 
+    # Classify soft failures (0 jobs) from the rendered HTML
+    soft_error_code: str | None = None
+    if not jobs:
+        soft_error_code = _classify_error(None, final_html)
+        if soft_error_code != EC_PARSE_FAILURE:
+            log.warning("Soft block detected for '%s': %s [%s]", url, soft_error_code, request_id)
+
     result: dict = {
         "jobs": jobs,
         "company_name": jobs[0]["company_name"] if jobs and jobs[0].get("company_name") else (company_name or ""),
@@ -243,6 +369,7 @@ async def _scrape_attempt(
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": len(jobs),
         "error": None,
+        "error_code": soft_error_code,
     }
     if debug:
         result["html_sample"] = final_html[:60_000]
