@@ -8,8 +8,6 @@ Endpoints:
   GET  /api      - JSON service info
   POST /scrape   - scrape a careers page (X-API-Key header OR session cookie)
 """
-from __future__ import annotations
-
 import ipaddress
 import os
 import secrets
