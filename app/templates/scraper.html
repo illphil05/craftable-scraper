@@ -1027,7 +1027,13 @@ function app() {
         });
         const d = await r.json();
         if (!r.ok) {
-          this.scrapeError = d.detail || 'HTTP ' + r.status;
+          if (Array.isArray(d.detail)) {
+            this.scrapeError = d.detail.map(e => e.msg + ' (' + e.loc.join('.') + ')').join('; ');
+          } else if (typeof d.detail === 'string') {
+            this.scrapeError = d.detail;
+          } else {
+            this.scrapeError = 'HTTP ' + r.status;
+          }
         } else {
           this.scrapeResult = d;
           this.saveCompanyName = this.scrapeCompany || d.company_name || '';
