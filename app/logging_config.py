@@ -45,7 +45,11 @@ def _build_handlers() -> dict:
         },
     }
     if LOG_TO_FILE:
-        os.makedirs(LOG_DIR, exist_ok=True)
+        try:
+            os.makedirs(LOG_DIR, exist_ok=True)
+        except PermissionError:
+            # Log directory not writable (e.g. test environments) — console only.
+            return handlers
         handlers["file"] = {
             "class": "logging.handlers.TimedRotatingFileHandler",
             "formatter": "json_fmt",
