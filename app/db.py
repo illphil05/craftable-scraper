@@ -216,7 +216,37 @@ CREATE INDEX IF NOT EXISTS idx_system_signal_evidence_system ON system_signal_ev
 """
 
 
+_DISCOVERY_QUEUE_SQL = """
+CREATE TABLE IF NOT EXISTS discovery_queue (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    website_url TEXT,
+    careers_url TEXT,
+    site_family TEXT,
+    source TEXT,
+    status TEXT DEFAULT 'pending',
+    notes TEXT,
+    discovered_at TEXT,
+    reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_status ON discovery_queue(status);
+"""
+
+_WEBHOOKS_SQL = """
+CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    event_types TEXT DEFAULT '[]',
+    secret TEXT NOT NULL,
+    active INTEGER DEFAULT 1,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_webhooks_active ON webhooks(active);
+"""
+
 async def _run_migrations(db: aiosqlite.Connection) -> None:
+    await db.executescript(_DISCOVERY_QUEUE_SQL)
+    await db.executescript(_WEBHOOKS_SQL)
     await _ensure_columns(
         db,
         "companies",
@@ -279,6 +309,16 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             "enriched_at": "TEXT",
             "enrichment_attempts": "INTEGER DEFAULT 0",
             "enrichment_failed_at": "TEXT",
+            "closed_at": "TEXT",
+            "reopened_at": "TEXT",
+        },
+    )
+    await _ensure_columns(
+        db,
+        "scrape_history",
+        {
+            "new_jobs": "INTEGER DEFAULT 0",
+            "closed_jobs": "INTEGER DEFAULT 0",
         },
     )
 
@@ -725,6 +765,10 @@ async def list_jobs(
     search: str = "",
     department: str = "",
     is_active: bool | None = None,
+    status: str = "",
+    city: str = "",
+    state: str = "",
+    location_type: str = "",
     page: int = 1,
     limit: int = 50,
 ) -> dict:
@@ -743,6 +787,23 @@ async def list_jobs(
     if is_active is not None:
         where += " AND j.is_active = ?"
         params.append(int(is_active))
+    # Lifecycle status filter
+    if status == "new":
+        where += " AND j.first_seen >= j.last_seen AND j.is_active = 1 AND j.job_version = 1"
+    elif status == "closed":
+        where += " AND j.is_active = 0 AND j.closed_at IS NOT NULL"
+    elif status == "reopened":
+        where += " AND j.reopened_at IS NOT NULL AND j.is_active = 1"
+    # Location filters
+    if city:
+        where += " AND j.city LIKE ?"
+        params.append(f"%{city}%")
+    if state:
+        where += " AND j.state = ?"
+        params.append(state)
+    if location_type:
+        where += " AND j.location_type = ?"
+        params.append(location_type)
     offset = (page - 1) * limit
 
     sql = f"""SELECT j.*, c.name as company_name FROM jobs j
@@ -1049,3 +1110,192 @@ async def mark_job_enrichment_failed(job_id: str) -> None:
         (job_id,),
     )
     await db.commit()
+
+
+# ── Lifecycle: active job hash snapshot for change detection ──────────────────
+
+async def get_active_job_hashes(company_id: str) -> dict[str, str]:
+    """Return {content_hash: job_id} for all currently active jobs of a company."""
+    db = await get_db()
+    async with db.execute(
+        "SELECT id, content_hash FROM jobs WHERE company_id = ? AND is_active = 1 AND content_hash IS NOT NULL",
+        (company_id,),
+    ) as cur:
+        return {row[1]: row[0] for row in await cur.fetchall()}
+
+
+async def mark_jobs_closed(job_ids: list[str], closed_at: str) -> None:
+    """Deactivate jobs and record closed_at timestamp."""
+    if not job_ids:
+        return
+    db = await get_db()
+    placeholders = ",".join("?" * len(job_ids))
+    await db.execute(
+        f"UPDATE jobs SET is_active = 0, closed_at = ? WHERE id IN ({placeholders})",
+        [closed_at, *job_ids],
+    )
+    await db.commit()
+
+
+async def mark_jobs_reopened(job_ids: list[str], reopened_at: str) -> None:
+    """Reactivate jobs and record reopened_at timestamp."""
+    if not job_ids:
+        return
+    db = await get_db()
+    placeholders = ",".join("?" * len(job_ids))
+    await db.execute(
+        f"UPDATE jobs SET is_active = 1, reopened_at = ?, closed_at = NULL WHERE id IN ({placeholders})",
+        [reopened_at, *job_ids],
+    )
+    await db.commit()
+
+
+async def update_scrape_lifecycle_counts(scrape_id: str, new_jobs: int, closed_jobs: int) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE scrape_history SET new_jobs = ?, closed_jobs = ? WHERE id = ?",
+        (new_jobs, closed_jobs, scrape_id),
+    )
+    await db.commit()
+
+
+# ── Webhooks ──────────────────────────────────────────────────────────────────
+
+async def create_webhook(url: str, event_types: list[str], secret: str) -> dict:
+    db = await get_db()
+    webhook_id = _uuid()
+    now = _now()
+    await db.execute(
+        "INSERT INTO webhooks (id, url, event_types, secret, active, created_at) VALUES (?,?,?,?,1,?)",
+        (webhook_id, url, json.dumps(event_types), secret, now),
+    )
+    await db.commit()
+    return {"id": webhook_id, "url": url, "event_types": event_types, "active": True, "created_at": now}
+
+
+async def list_webhooks(event_type: str | None = None) -> list[dict]:
+    db = await get_db()
+    if event_type:
+        # SQLite JSON: match event_types array containing the value
+        async with db.execute(
+            "SELECT * FROM webhooks WHERE active = 1 AND (event_types = '[]' OR event_types LIKE ?)",
+            (f'%"{event_type}"%',),
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    else:
+        async with db.execute("SELECT * FROM webhooks ORDER BY created_at DESC") as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    for row in rows:
+        if row.get("event_types"):
+            try:
+                row["event_types"] = json.loads(row["event_types"])
+            except (json.JSONDecodeError, TypeError):
+                row["event_types"] = []
+    return rows
+
+
+async def delete_webhook(webhook_id: str) -> bool:
+    db = await get_db()
+    await db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+    await db.commit()
+    return True
+
+
+# ── Discovery queue ───────────────────────────────────────────────────────────
+
+async def add_discovery_candidate(
+    name: str,
+    website_url: str | None,
+    careers_url: str | None,
+    site_family: str | None,
+    source: str,
+) -> dict:
+    """Insert a candidate into the discovery queue (idempotent by website_url)."""
+    db = await get_db()
+    if website_url:
+        async with db.execute(
+            "SELECT id FROM discovery_queue WHERE website_url = ?", (website_url,)
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            return {"id": existing[0], "skipped": True}
+    candidate_id = _uuid()
+    now = _now()
+    await db.execute(
+        "INSERT INTO discovery_queue (id, name, website_url, careers_url, site_family, source, status, discovered_at) VALUES (?,?,?,?,?,?,?,?)",
+        (candidate_id, name, website_url, careers_url, site_family, source, "pending", now),
+    )
+    await db.commit()
+    return {"id": candidate_id, "name": name, "status": "pending", "discovered_at": now}
+
+
+async def list_discovery_queue(status: str = "pending", page: int = 1, limit: int = 50) -> dict:
+    db = await get_db()
+    offset = (page - 1) * limit
+    async with db.execute(
+        "SELECT * FROM discovery_queue WHERE status = ? ORDER BY discovered_at DESC LIMIT ? OFFSET ?",
+        (status, limit, offset),
+    ) as cur:
+        rows = [dict(r) for r in await cur.fetchall()]
+    async with db.execute("SELECT COUNT(*) FROM discovery_queue WHERE status = ?", (status,)) as cur:
+        total = (await cur.fetchone())[0]
+    return {"candidates": rows, "total": total, "page": page, "limit": limit}
+
+
+async def update_discovery_status(candidate_id: str, status: str, notes: str | None = None) -> dict | None:
+    db = await get_db()
+    now = _now()
+    await db.execute(
+        "UPDATE discovery_queue SET status = ?, reviewed_at = ?, notes = COALESCE(?, notes) WHERE id = ?",
+        (status, now, notes, candidate_id),
+    )
+    await db.commit()
+    async with db.execute("SELECT * FROM discovery_queue WHERE id = ?", (candidate_id,)) as cur:
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+# ── Scrape health queries ─────────────────────────────────────────────────────
+
+async def get_stale_companies(threshold_hours: float = 36.0) -> list[dict]:
+    """Companies whose most recent scrape is older than threshold_hours."""
+    db = await get_db()
+    async with db.execute(
+        """SELECT c.id, c.name, c.careers_url,
+                  MAX(sh.created_at) as last_scrape,
+                  COUNT(sh.id) as scrape_count
+           FROM companies c
+           LEFT JOIN scrape_history sh ON sh.company_id = c.id
+           WHERE c.careers_url IS NOT NULL
+           GROUP BY c.id
+           HAVING last_scrape IS NULL
+              OR last_scrape < datetime('now', ? || ' hours')
+           ORDER BY last_scrape ASC NULLS FIRST
+           LIMIT 100""",
+        (f"-{threshold_hours}",),
+    ) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_failing_companies(consecutive_errors: int = 3) -> list[dict]:
+    """Companies with N or more consecutive failed scrapes."""
+    db = await get_db()
+    async with db.execute(
+        """SELECT c.id, c.name, c.careers_url,
+                  COUNT(sh.id) as error_count,
+                  MAX(sh.created_at) as last_attempt
+           FROM companies c
+           JOIN scrape_history sh ON sh.company_id = c.id
+           WHERE sh.error IS NOT NULL
+             AND sh.created_at >= (
+                 SELECT created_at FROM scrape_history
+                 WHERE company_id = c.id AND error IS NULL
+                 ORDER BY created_at DESC LIMIT 1
+             )
+           GROUP BY c.id
+           HAVING error_count >= ?
+           ORDER BY error_count DESC
+           LIMIT 50""",
+        (consecutive_errors,),
+    ) as cur:
+        return [dict(r) for r in await cur.fetchall()]
