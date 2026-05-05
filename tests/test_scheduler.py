@@ -103,7 +103,7 @@ async def test_scheduled_scrape_paginates():
         patch("app.scheduler.db.list_companies", new_callable=AsyncMock, side_effect=page_responses) as mock_list,
         patch("app.scheduler.db.save_scrape", new_callable=AsyncMock, return_value="s1"),
         patch("app.scheduler.db.save_jobs", new_callable=AsyncMock),
-        patch("app.scheduler.scrape_url", new_callable=AsyncMock, return_value=_scrape_result()),
+        patch("app.scheduler.scrape_url", new_callable=AsyncMock, return_value=_scrape_result()) as mock_scrape,
         patch("app.scheduler.push_to_outreach", new_callable=AsyncMock, return_value={"ok": False, "skipped": True}),
     ):
         await _run_scheduled_scrape()
@@ -111,6 +111,7 @@ async def test_scheduled_scrape_paginates():
     assert mock_list.call_count == 2
     assert mock_list.call_args_list[0] == call(page=1, limit=_PAGE_SIZE)
     assert mock_list.call_args_list[1] == call(page=2, limit=_PAGE_SIZE)
+    assert mock_scrape.call_count == _PAGE_SIZE + 3
 
 
 @pytest.mark.asyncio
