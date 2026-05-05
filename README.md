@@ -136,7 +136,7 @@ Exposed via Traefik at `scraper.myrtle.cloud`.
 
 After each deploy, verify this sequence before enabling scheduled sync:
 
-1. `GET /health` — should return `{"ok": true}` plus service/version fields.
+1. `GET /health` — should return `{"status": "ok", "service": "craftable-scraper", "version": "..."}` with `status: "ok"`.
 2. `GET /api/outreach/status` — should show flag states and URL/key presence; no secret values.
 3. **Manual save push** (`PUSH_MANUAL_SAVES_TO_OUTREACH=true`): scrape a known careers URL in the UI, edit Company/Title/Location, save. Confirm outreach `discovered_jobs` receives a row with `source="craftable_scraper"`, `source_url`, `full_description`, and correct company name.
 4. **Scheduled push** (`PUSH_TO_OUTREACH=true`): trigger `_run_scheduled_scrape()` via a direct admin/test call rather than setting a fractional `SCRAPE_INTERVAL_HOURS` (that value is parsed as `int` and will crash at startup). Confirm `scrape_history` rows include `adapter_family`, `adapter_variant`, `artifact_refs`, and `error_code`. Confirm outreach rows are inserted or deduped without creating duplicate visible jobs.
