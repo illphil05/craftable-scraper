@@ -13,7 +13,7 @@ class DayforceAdapter(SiteAdapter):
         wait_selectors=(),
         supported_extraction_modes=("embedded_json",),
         fallback_order=10,
-        dom_markers=("__NEXT_DATA__", "dayforcehcm", "jobPostingContent"),
+        dom_markers=("__NEXT_DATA__", "jobPostingContent"),
         confidence_rules={"url_pattern": 0.95, "dom_marker": 0.02},
     )
     parser = staticmethod(parse)

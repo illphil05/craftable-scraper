@@ -203,7 +203,11 @@ async def save_scrape(body: SaveScrapeRequest):
             company_id = existing["id"]
         elif body.company_name:
             parsed = urlparse(body.careers_url)
-            fallback_website_url = f"{parsed.scheme}://{parsed.netloc}"
+            fallback_website_url = (
+                f"{parsed.scheme}://{parsed.netloc}"
+                if parsed.scheme and parsed.netloc
+                else body.careers_url
+            )
             c = await db.create_company(
                 name=body.company_name,
                 careers_url=body.careers_url,

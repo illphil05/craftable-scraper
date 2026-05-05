@@ -3,10 +3,12 @@
 URL pattern: jobs.dayforcehcm.com/en-US/{namespace}/{careerSite}/jobs/{jobId}
 
 Dayforce is a Next.js SSR application. Every job detail page embeds the full
-job record as JSON inside <script id="__NEXT_DATA__">. This parser finds that
-blob and extracts a single job dict.
+job record as JSON inside <script id="__NEXT_DATA__">. This parser handles
+detail pages only (URLs ending in /jobs/{id}). Listing pages (/jobs with no
+ID) have a different pageProps shape and no jobData key — they return [].
+Missing or malformed __NEXT_DATA__ also returns [].
 
-postingStatus == 4 means expired/closed — returns empty list in that case.
+postingStatus == 4 means expired/closed — returns [] in that case.
 """
 from __future__ import annotations
 
@@ -17,12 +19,17 @@ from html.parser import HTMLParser
 from app.parsers import register_parser
 
 _POSTING_STATUS_CLOSED = 4
+_BLOCK_TAGS = frozenset({"p", "br", "li", "div", "h1", "h2", "h3", "h4", "h5", "h6"})
 
 
 class _HTMLStripper(HTMLParser):
     def __init__(self):
         super().__init__()
         self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.lower() in _BLOCK_TAGS:
+            self._parts.append(" ")
 
     def handle_data(self, data: str) -> None:
         self._parts.append(data)
@@ -75,7 +82,6 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     if not isinstance(job_data, dict):
         return []
 
-    # Skip expired / closed postings
     if job_data.get("postingStatus") == _POSTING_STATUS_CLOSED:
         return []
 
@@ -87,14 +93,15 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     location = _build_location(posting_locations)
 
     content = job_data.get("jobPostingContent") or {}
-    description_html = content.get("jobDescription") or ""
-    snippet = _strip_html(description_html)[:500] if description_html else None
+    description_html = content.get("jobDescription") or None
+    description_text = _strip_html(description_html) if description_html else None
+    snippet = description_text[:500] if description_text else None
 
     req_id = job_data.get("jobReqId") or None
 
-    posted_raw = job_data.get("postingStartTimestampUTC") or ""
-    posted_date = re.match(r"(\d{4}-\d{2}-\d{2})", posted_raw)
-    posted_date = posted_date.group(1) if posted_date else None
+    posted_raw = job_data.get("postingStartTimestampUTC") or None
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", posted_raw) if posted_raw else None
+    posted_date = m.group(1) if m else None
 
     return [
         {
@@ -103,7 +110,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
             "url": url,
             "location": location,
             "snippet": snippet,
-            "description": description_html or None,
+            "description": description_text,
             "department": None,
             "requisition_id": req_id,
             "posted_date": posted_date,
