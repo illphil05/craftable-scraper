@@ -5,6 +5,7 @@ All handlers are async to work with the aiosqlite-backed db module.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -201,9 +202,12 @@ async def save_scrape(body: SaveScrapeRequest):
         if existing:
             company_id = existing["id"]
         elif body.company_name:
+            parsed = urlparse(body.careers_url)
+            fallback_website_url = f"{parsed.scheme}://{parsed.netloc}"
             c = await db.create_company(
                 name=body.company_name,
                 careers_url=body.careers_url,
+                website_url=fallback_website_url,
                 careers_source="career_site",
                 site_family=body.adapter_family,
                 site_variant=body.adapter_variant,
