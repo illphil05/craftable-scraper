@@ -40,8 +40,8 @@ def build_outreach_import_payload(company: dict, careers_url: str, jobs: list[di
     }
 
 
-async def push_to_outreach(payload: dict) -> dict:
-    if not env_truthy("PUSH_TO_OUTREACH"):
+async def push_to_outreach(payload: dict, *, enabled_env: str = "PUSH_TO_OUTREACH") -> dict:
+    if not env_truthy(enabled_env):
         return {"ok": False, "skipped": True}
 
     outreach_url = os.environ.get("OUTREACH_IMPORT_URL", "").strip()
