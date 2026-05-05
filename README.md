@@ -131,3 +131,14 @@ Exposed via Traefik at `scraper.myrtle.cloud`.
 | `PUSH_MANUAL_SAVES_TO_OUTREACH` | No | Set `true` to push UI-saved scrape results to outreach (default: off) |
 | `OUTREACH_IMPORT_URL` | No | Outreach import endpoint, e.g. `https://craftable.myrtle.cloud/outreach/api/scraper/import` |
 | `OUTREACH_API_KEY` | No | Bearer key for the outreach service; falls back to `SCRAPER_API_KEY` if unset |
+
+## Production smoke test
+
+After each deploy, verify this sequence before enabling scheduled sync:
+
+1. `GET /health` — should return `{"ok": true}` plus service/version fields.
+2. `GET /api/outreach/status` — should show flag states and URL/key presence; no secret values.
+3. **Manual save push** (`PUSH_MANUAL_SAVES_TO_OUTREACH=true`): scrape a known careers URL in the UI, edit Company/Title/Location, save. Confirm outreach `discovered_jobs` receives a row with `source="craftable_scraper"`, `source_url`, `full_description`, and correct company name.
+4. **Scheduled push** (`PUSH_TO_OUTREACH=true`): trigger `_run_scheduled_scrape()` via a direct admin/test call rather than setting a fractional `SCRAPE_INTERVAL_HOURS` (that value is parsed as `int` and will crash at startup). Confirm `scrape_history` rows include `adapter_family`, `adapter_variant`, `artifact_refs`, and `error_code`. Confirm outreach rows are inserted or deduped without creating duplicate visible jobs.
+
+Safe initial rollout flags: `PUSH_MANUAL_SAVES_TO_OUTREACH=true`, `PUSH_TO_OUTREACH=false`. Enable scheduled sync only after step 3 passes.
