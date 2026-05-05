@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import db
-from app.outreach import build_outreach_import_payload, env_truthy, push_to_outreach
+from app.outreach import build_outreach_import_payload, outreach_config_status, push_to_outreach
 from app.tech_detect import detect_systems
 
 router = APIRouter(prefix="/api")
@@ -180,6 +180,12 @@ async def systems_heatmap():
 @router.get("/recent-scrapes")
 async def recent_scrapes(limit: int = 20):
     return await db.get_recent_scrapes(limit=limit)
+
+
+@router.get("/outreach/status")
+async def outreach_status():
+    """Return outreach push configuration flags — no secret values exposed."""
+    return outreach_config_status()
 
 
 # ── Save scrape results to DB ─────────────────────────────────────────────────
