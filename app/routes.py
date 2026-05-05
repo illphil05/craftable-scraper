@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import db
+from app.outreach import build_outreach_import_payload, env_truthy, push_to_outreach
 from app.tech_detect import detect_systems
 
 router = APIRouter(prefix="/api")
@@ -223,6 +224,13 @@ async def save_scrape(body: SaveScrapeRequest):
 
     if body.jobs:
         await db.save_jobs(company_id, scrape_id, body.jobs)
+        if env_truthy("PUSH_MANUAL_SAVES_TO_OUTREACH"):
+            company_record = await db.get_company(company_id)
+            if company_record:
+                payload = build_outreach_import_payload(
+                    company_record, body.careers_url, body.jobs
+                )
+                await push_to_outreach(payload)
 
     if body.html:
         systems = detect_systems(body.html, body.jobs)

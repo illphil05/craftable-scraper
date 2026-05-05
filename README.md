@@ -127,3 +127,7 @@ Exposed via Traefik at `scraper.myrtle.cloud`.
 | `SCRAPE_INTERVAL_HOURS` | No | Re-scrape cadence in hours (default: 24, 0 = off) |
 | `PAYCOM_DETAIL_LIMIT` | No | Max job details fetched per Paycom run (default: 50) |
 | `PAYCOM_DETAIL_DELAY` | No | Delay between Paycom detail requests in seconds (default: 0.2) |
+| `PUSH_TO_OUTREACH` | No | Set `true` to push scheduled scrape results to outreach (default: off) |
+| `PUSH_MANUAL_SAVES_TO_OUTREACH` | No | Set `true` to push UI-saved scrape results to outreach (default: off) |
+| `OUTREACH_IMPORT_URL` | No | Outreach import endpoint, e.g. `https://craftable.myrtle.cloud/outreach/api/scraper/import` |
+| `OUTREACH_API_KEY` | No | Bearer key for the outreach service; falls back to `SCRAPER_API_KEY` if unset |
