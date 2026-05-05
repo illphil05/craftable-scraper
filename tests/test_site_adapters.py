@@ -14,3 +14,13 @@ def test_resolve_workday_adapter_from_url():
 def test_generic_adapter_is_fallback():
     adapter = get_adapter("https://example.com/careers")
     assert adapter.manifest.family == "generic"
+
+
+def test_resolve_dayforce_adapter_from_url():
+    adapter = get_adapter("https://jobs.dayforcehcm.com/en-US/ohmc/CANDIDATEPORTAL/jobs/6570")
+    assert adapter.manifest.family == "dayforce"
+
+
+def test_dayforce_dom_markers_exclude_broad_domain_string():
+    adapter = get_adapter("https://jobs.dayforcehcm.com/en-US/ohmc/CANDIDATEPORTAL/jobs/6570")
+    assert "dayforcehcm" not in adapter.manifest.dom_markers
