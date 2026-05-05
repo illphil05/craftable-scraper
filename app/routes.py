@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import db
+from app.outreach import build_outreach_import_payload, outreach_config_status, push_to_outreach
 from app.tech_detect import detect_systems
 
 router = APIRouter(prefix="/api")
@@ -181,6 +182,12 @@ async def recent_scrapes(limit: int = 20):
     return await db.get_recent_scrapes(limit=limit)
 
 
+@router.get("/outreach/status")
+async def outreach_status():
+    """Return outreach push configuration flags — no secret values exposed."""
+    return outreach_config_status()
+
+
 # ── Save scrape results to DB ─────────────────────────────────────────────────
 
 @router.post("/save-scrape")
@@ -223,6 +230,12 @@ async def save_scrape(body: SaveScrapeRequest):
 
     if body.jobs:
         await db.save_jobs(company_id, scrape_id, body.jobs)
+        company_record = await db.get_company(company_id)
+        if company_record:
+            payload = build_outreach_import_payload(
+                company_record, body.careers_url, body.jobs
+            )
+            await push_to_outreach(payload, enabled_env="PUSH_MANUAL_SAVES_TO_OUTREACH")
 
     if body.html:
         systems = detect_systems(body.html, body.jobs)

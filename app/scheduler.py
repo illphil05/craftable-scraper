@@ -10,72 +10,33 @@ import os
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-import httpx
 
 from app.logging_config import get_logger
 from app import db
 from app.intelligence.enricher import run_enrichment_batch
+from app.outreach import build_outreach_import_payload, push_to_outreach
 from app.scraper import scrape_url
 
 log = get_logger("scheduler")
 
 _scheduler: AsyncIOScheduler | None = None
 _INTERVAL_HOURS = int(os.environ.get("SCRAPE_INTERVAL_HOURS", "24"))
-_PUSH_TO_OUTREACH = os.environ.get("PUSH_TO_OUTREACH", "false").lower() in {"1", "true", "yes"}
-_OUTREACH_IMPORT_URL = os.environ.get("OUTREACH_IMPORT_URL", "").strip()
-_OUTREACH_API_KEY = os.environ.get("OUTREACH_API_KEY", os.environ.get("SCRAPER_API_KEY", "")).strip()
 
-
-async def _push_to_outreach(company: dict, careers_url: str, jobs: list[dict]) -> None:
-    if not _PUSH_TO_OUTREACH:
-        return
-    if not _OUTREACH_IMPORT_URL:
-        log.warning("Outreach push enabled but OUTREACH_IMPORT_URL is not set")
-        return
-    if not _OUTREACH_API_KEY:
-        log.warning("Outreach push enabled but OUTREACH_API_KEY is not set")
-        return
-    if not jobs:
-        return
-
-    payload_jobs = []
-    for job in jobs:
-        payload_jobs.append({
-            **job,
-            "company_name": job.get("company_name") or company.get("name"),
-            "source": "craftable_scraper",
-            "discovered_at": job.get("discovered_at") or job.get("first_seen") or None,
-            "source_url": job.get("url"),
-            "full_description": job.get("description"),
-        })
-
-    payload = {
-        "jobs": payload_jobs,
-        "source": "craftable_scraper",
-        "search_term": "scheduled_careers_sweep",
-        "region": company.get("region") or "",
-        "careers_url": careers_url,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                _OUTREACH_IMPORT_URL,
-                json=payload,
-                headers={"X-API-Key": _OUTREACH_API_KEY},
-            )
-        if response.status_code >= 400:
-            log.error("Outreach import failed for '%s': HTTP %d %s", company.get("name"), response.status_code, response.text[:300])
-            return
-        log.info("Outreach import pushed for '%s': %s", company.get("name"), response.text[:300])
-    except Exception as exc:
-        log.error("Outreach import error for '%s': %s", company.get("name"), exc)
+_PAGE_SIZE = 500
 
 
 async def _run_scheduled_scrape() -> None:
     """Re-scrape every company that has a careers_url set."""
-    result = await db.list_companies(limit=500)
-    companies = [c for c in result["companies"] if c.get("careers_url")]
+    page_num = 1
+    companies = []
+    while True:
+        result = await db.list_companies(page=page_num, limit=_PAGE_SIZE)
+        batch = [c for c in result["companies"] if c.get("careers_url")]
+        companies.extend(batch)
+        if len(result["companies"]) < _PAGE_SIZE:
+            break
+        page_num += 1
+
     if not companies:
         log.info("Scheduled scrape: no companies with careers_url, skipping")
         return
@@ -90,15 +51,20 @@ async def _run_scheduled_scrape() -> None:
                 company_id=company["id"],
                 url=url,
                 parser_used=res["method"],
+                adapter_family=res.get("adapter_family"),
+                adapter_variant=res.get("adapter_variant"),
                 jobs_found=res["jobs_count"],
                 elapsed_ms=res.get("elapsed_ms", 0),
                 error=res.get("error"),
+                error_code=res.get("error_code"),
                 html_size=res.get("html_size"),
+                artifact_refs=res.get("artifact_refs") or {},
                 deep=False,
             )
             if res["jobs"]:
                 await db.save_jobs(company["id"], scrape_id, res["jobs"])
-                await _push_to_outreach(company, url, res["jobs"])
+                payload = build_outreach_import_payload(company, url, res["jobs"])
+                await push_to_outreach(payload)
             success += 1
         except Exception as exc:
             log.error("Scheduled scrape failed for '%s': %s", url, exc)

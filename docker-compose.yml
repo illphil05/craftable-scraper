@@ -11,8 +11,9 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - BRIGHTDATA_BROWSER_WS=${BRIGHTDATA_BROWSER_WS:-}
       - PUSH_TO_OUTREACH=${PUSH_TO_OUTREACH:-false}
-      - OUTREACH_IMPORT_URL=${OUTREACH_IMPORT_URL}
-      - OUTREACH_API_KEY=${OUTREACH_API_KEY}
+      - PUSH_MANUAL_SAVES_TO_OUTREACH=${PUSH_MANUAL_SAVES_TO_OUTREACH:-false}
+      - OUTREACH_IMPORT_URL=${OUTREACH_IMPORT_URL:-}
+      - OUTREACH_API_KEY=${OUTREACH_API_KEY:-}
     volumes:
       - /opt/craftable-scraper/data:/data
     restart: unless-stopped
