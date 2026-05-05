@@ -181,6 +181,7 @@ class ScrapeResponse(BaseModel):
     html_sample: str | None = None
     html_size: int | None = None
     artifact_refs: dict | None = None
+    extraction_attempts: list[dict] | None = None
 
 
 # ── UI endpoints ──────────────────────────────────────────────────────────────
@@ -257,7 +258,7 @@ async def scrape(request: Request, x_api_key: str = Header(default=""), req: Scr
     )
 
     return ScrapeResponse(
-        jobs=[JobResult(**j) for j in result["jobs"]],
+        jobs=[JobResult(**{k: v for k, v in j.items() if k in JobResult.model_fields}) for j in result["jobs"]],
         company_name=result["company_name"],
         url=result["url"],
         method=result["method"],
@@ -273,4 +274,5 @@ async def scrape(request: Request, x_api_key: str = Header(default=""), req: Scr
             "captured_response_urls": result.get("captured_response_urls", []),
             "captured_response_count": result.get("captured_response_count", 0),
         },
+        extraction_attempts=result.get("extraction_attempts") or None,
     )

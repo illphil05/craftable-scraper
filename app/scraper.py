@@ -1,11 +1,21 @@
-"""Core scraper — uses Playwright to render JS, then passes HTML to ATS parsers.
+"""Core scraper — layered extraction pipeline.
+
+Strategy order per request:
+  1. API-first site adapter (fetch_api_jobs)
+  2. Playwright site adapter
+  3. Bright Data Web Unlocker REST fallback
+  4. Dynamic parser over unlocked HTML
+  5. Botasaurus fallback (for non-API-capture adapters)
 
 Improvements over v1:
- - Uses the plugin registry for parser/selector lookup (no hardcoded lists).
- - Retry logic with exponential back-off (item 8).
- - asyncio.Semaphore caps concurrent browser instances (item 3).
- - Generic deep-scrape: any parser that exports `parse_detail` is used (item 7).
- - Structured logging throughout (item 11).
+ - ExtractionResult TypedDict for structured pipeline results.
+ - API-first path bypasses Playwright for known ATS REST endpoints.
+ - Bright Data REST fallback for blocked/unknown domains.
+ - Dynamic parser for parserless job URLs.
+ - extraction_attempts list for structured diagnostics.
+ - Retry logic with exponential back-off.
+ - asyncio.Semaphore caps concurrent browser instances.
+ - Generic deep-scrape: any parser that exports `parse_detail` is used.
  - SSRF protection is validated by the caller (main.py) before reaching here.
 """
 from __future__ import annotations
@@ -15,6 +25,7 @@ import os
 import random
 import re
 import time
+from typing import TypedDict
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -52,6 +63,8 @@ EC_PARSE_FAILURE = "parse_failure"
 EC_NETWORK_ERROR = "network_error"
 
 _NON_RETRYABLE = {EC_IP_BLOCKED, EC_URL_NOT_FOUND}
+# Error codes that should trigger Bright Data fallback
+_BRIGHTDATA_TRIGGER_CODES = {EC_IP_BLOCKED, EC_CAPTCHA, EC_TIMEOUT, EC_NETWORK_ERROR}
 
 # ── Circuit breaker ───────────────────────────────────────────────────────────
 _CB_TTL = float(os.environ.get("CB_TTL_SECONDS", "3600"))  # 1 hour default
@@ -109,12 +122,28 @@ def _classify_error(exc: BaseException | None, html: str = "") -> str:
 
     return EC_PARSE_FAILURE
 
+
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 ]
 
+
+# ── ExtractionResult ──────────────────────────────────────────────────────────
+
+class ExtractionResult(TypedDict, total=False):
+    jobs: list[dict]
+    html: str
+    method: str
+    adapter_family: str
+    adapter_variant: str
+    extraction_attempts: list[dict]
+    error: str | None
+    error_code: str | None
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8_000) -> bool:
     """Wait for the first selector in *selectors* that attaches to the DOM."""
@@ -139,6 +168,114 @@ def _combined_wait_selectors(*selector_lists: list[str]) -> list[str]:
     return combined
 
 
+# ── Bright Data fallback ──────────────────────────────────────────────────────
+
+async def _brightdata_fallback(
+    url: str,
+    company_name: str | None,
+    adapter,
+    request_id: str,
+    prior_attempts: list[dict],
+) -> dict:
+    """Fetch *url* via Bright Data REST and parse with dynamic parser."""
+    from app import brightdata
+    from app.parsers.dynamic import parse_dynamic
+
+    attempt_record: dict = {"method": "brightdata:unlocker"}
+
+    try:
+        result = await brightdata.unlock_url(url)
+        html = result.get("body", "")
+        attempt_record["status_code"] = result.get("status_code", 0)
+        attempt_record["html_size"] = len(html)
+    except Exception as exc:
+        attempt_record["error"] = str(exc)
+        log.warning("Bright Data unlock failed for '%s': %s [%s]", url, exc, request_id)
+        return {
+            "jobs": [],
+            "company_name": company_name or "",
+            "url": url,
+            "method": f"brightdata:unlocker:{adapter.manifest.family}",
+            "adapter_family": adapter.manifest.family,
+            "adapter_variant": adapter.manifest.variant,
+            "jobs_count": 0,
+            "error": str(exc),
+            "error_code": EC_NETWORK_ERROR,
+            "extraction_attempts": prior_attempts + [attempt_record],
+        }
+
+    # Try adapter parser first on unlocked HTML
+    jobs = adapter.parse_jobs(html, url, company_name, match_confidence=adapter.match_confidence(url, html=html))
+    parse_method = f"brightdata:unlocker:{adapter.manifest.family}"
+    dynamic_attempt: dict = {"method": f"adapter:{adapter.manifest.family}", "jobs": len(jobs)}
+
+    if not jobs:
+        # Fall through to dynamic parser
+        jobs = parse_dynamic(html, url, company_name)
+        parse_method = "brightdata:unlocker:dynamic"
+        dynamic_attempt = {"method": "dynamic", "jobs": len(jobs)}
+
+    log.info("Bright Data fallback: %d jobs from '%s' [%s]", len(jobs), url, request_id)
+
+    return {
+        "jobs": jobs,
+        "company_name": jobs[0].get("company_name", company_name or "") if jobs else (company_name or ""),
+        "url": url,
+        "method": parse_method,
+        "adapter_family": "dynamic" if "dynamic" in parse_method else adapter.manifest.family,
+        "adapter_variant": "brightdata_unlocker",
+        "jobs_count": len(jobs),
+        "error": None if jobs else "No jobs found after Bright Data unlock",
+        "error_code": None if jobs else EC_PARSE_FAILURE,
+        "extraction_attempts": prior_attempts + [attempt_record, dynamic_attempt],
+    }
+
+
+def _should_try_brightdata(adapter, result_or_error_code: str | None) -> bool:
+    """Return True if Bright Data fallback is warranted."""
+    from app import brightdata as bd
+    if not bd.is_configured():
+        return False
+    if result_or_error_code in _BRIGHTDATA_TRIGGER_CODES:
+        return True
+    # Always try for generic adapter with zero jobs
+    if adapter.manifest.family == "generic" and result_or_error_code == EC_PARSE_FAILURE:
+        return True
+    return False
+
+
+# ── API-first path ────────────────────────────────────────────────────────────
+
+async def _api_first_attempt(
+    url: str,
+    company_name: str | None,
+    adapter,
+    request_id: str,
+) -> dict | None:
+    """Try fetch_api_jobs(); return a result dict or None to fall through."""
+    jobs = await adapter.fetch_api_jobs(url, company_name, request_id)
+    if jobs is None:
+        return None
+
+    log.info("API-first: %d jobs from '%s' [%s]", len(jobs), url, request_id)
+    return {
+        "jobs": jobs,
+        "company_name": jobs[0].get("company_name", company_name or "") if jobs else (company_name or ""),
+        "url": url,
+        "method": f"api:{adapter.manifest.family}",
+        "adapter_family": adapter.manifest.family,
+        "adapter_variant": "api",
+        "jobs_count": len(jobs),
+        "error": None if jobs else "API returned zero jobs",
+        "error_code": None if jobs else EC_PARSE_FAILURE,
+        "extraction_attempts": [
+            {"method": f"api:{adapter.manifest.family}", "jobs": len(jobs)},
+        ],
+    }
+
+
+# ── Main entry point ──────────────────────────────────────────────────────────
+
 async def scrape_url(
     url: str,
     company_name: str | None = None,
@@ -148,13 +285,15 @@ async def scrape_url(
     deep: bool = False,
     request_id: str = "",
 ) -> dict:
-    """Scrape *url* with Playwright and return parsed job listings.
+    """Scrape *url* and return parsed job listings.
 
-    Retries up to _MAX_RETRIES times with exponential back-off on transient
-    failures.  Each retry rotates the User-Agent string.
+    Strategy order:
+      1. API-first adapter (if available)
+      2. Playwright with retries
+      3. Bright Data REST fallback (if configured and warranted)
+      4. Botasaurus fallback (for non-API-capture adapters)
     """
     adapter = get_adapter(url)
-    parser_name = adapter.manifest.family
 
     blocked, cb_ec = _cb_check(url)
     if blocked:
@@ -169,10 +308,19 @@ async def scrape_url(
             "jobs_count": 0,
             "error": f"Domain temporarily blocked ({cb_ec}). Skipping — will retry after cooldown.",
             "error_code": cb_ec,
+            "extraction_attempts": [{"method": "circuit_breaker", "error_code": cb_ec}],
         }
 
+    # ── Step 1: API-first ─────────────────────────────────────────────────────
+    api_result = await _api_first_attempt(url, company_name, adapter, request_id)
+    if api_result is not None:
+        return api_result
+
+    # ── Step 2: Playwright with retries ───────────────────────────────────────
+    parser_name = adapter.manifest.family
     last_error: str | None = None
     last_exc: BaseException | None = None
+    playwright_attempts: list[dict] = []
 
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
@@ -189,14 +337,37 @@ async def scrape_url(
             )
             if attempt > 1:
                 log.info("'%s' scrape succeeded on attempt %d [%s]", url, attempt, request_id)
-            # Trip CB on soft block (0 jobs + error_code set by _scrape_attempt)
-            if result.get("error_code") in _NON_RETRYABLE:
-                _cb_trip(url, result["error_code"])
+
+            playwright_attempts.append({
+                "method": result.get("method", f"playwright:{adapter.manifest.family}"),
+                "jobs": result.get("jobs_count", 0),
+                "attempt": attempt,
+                "error_code": result.get("error_code"),
+            })
+            result.setdefault("extraction_attempts", [])
+            result["extraction_attempts"] = playwright_attempts + result["extraction_attempts"]
+
+            ec = result.get("error_code")
+            if ec in _NON_RETRYABLE:
+                _cb_trip(url, ec)
+
+            # Bright Data fallback for blocked/unknown with zero jobs
+            if not result["jobs"] and _should_try_brightdata(adapter, ec):
+                log.info("Zero jobs from Playwright (%s) — trying Bright Data fallback [%s]", ec, request_id)
+                return await _brightdata_fallback(url, company_name, adapter, request_id, playwright_attempts)
+
             return result
+
         except Exception as exc:
             last_error = str(exc)
             last_exc = exc
             ec = _classify_error(exc)
+            playwright_attempts.append({
+                "method": f"playwright:{adapter.manifest.family}",
+                "attempt": attempt,
+                "error_code": ec,
+                "error": last_error[:200],
+            })
             error_type = "timeout" if isinstance(exc, PlaywrightTimeout) else "error"
             log.warning(
                 "Scrape attempt %d/%d %s for '%s': %s [%s]",
@@ -214,10 +385,19 @@ async def scrape_url(
     final_ec = _classify_error(last_exc)
     log.error("All %d Playwright attempts failed for '%s': %s [%s]", _MAX_RETRIES, url, last_error, request_id)
 
+    # ── Step 3: Bright Data fallback ──────────────────────────────────────────
+    if _should_try_brightdata(adapter, final_ec):
+        log.info("Playwright failed (%s) — trying Bright Data fallback [%s]", final_ec, request_id)
+        return await _brightdata_fallback(url, company_name, adapter, request_id, playwright_attempts)
+
+    # ── Step 4: Botasaurus fallback ───────────────────────────────────────────
     if not getattr(adapter.manifest, "api_capture_support", False):
         try:
             async with _BROWSER_SEM:
-                return await botasaurus_scrape(url, adapter, company_name, request_id, timeout=timeout / 1000)
+                bota_result = await botasaurus_scrape(url, adapter, company_name, request_id, timeout=timeout / 1000)
+            bota_result.setdefault("extraction_attempts", [])
+            bota_result["extraction_attempts"] = playwright_attempts + bota_result["extraction_attempts"]
+            return bota_result
         except Exception as bota_exc:
             log.error("Botasaurus fallback also failed for '%s': %s [%s]", url, bota_exc, request_id)
             last_error = str(bota_exc)
@@ -235,6 +415,7 @@ async def scrape_url(
         "jobs_count": 0,
         "error": last_error,
         "error_code": final_ec,
+        "extraction_attempts": playwright_attempts,
     }
 
 
@@ -370,6 +551,7 @@ async def _scrape_attempt(
         "jobs_count": len(jobs),
         "error": None,
         "error_code": soft_error_code,
+        "extraction_attempts": [],
     }
     if debug:
         result["html_sample"] = final_html[:60_000]

@@ -1097,12 +1097,15 @@ function app() {
         const body = {
           careers_url: this.scrapeUrl.trim(),
           parser_used: this.scrapeResult.method || '',
+          adapter_family: this.scrapeResult.adapter_family || null,
+          adapter_variant: this.scrapeResult.adapter_variant || null,
           jobs_found: this.scrapeResult.jobs_count || 0,
           elapsed_ms: this.scrapeResult.elapsed_ms || 0,
           html_size: this.scrapeResult.html_size || 0,
           deep: this.scrapeDeep,
           jobs: this.scrapeResult.jobs || [],
           html: this.scrapeResult.html_sample || '',
+          artifact_refs: this.scrapeResult.artifact_refs || {},
         };
         if (existingCompanyId) {
           body.company_id = existingCompanyId;

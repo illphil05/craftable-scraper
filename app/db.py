@@ -14,6 +14,7 @@ import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import aiosqlite
 
@@ -68,6 +69,17 @@ async def close_db() -> None:
         _conn = None
 
 
+def _origin_from_url(url: str) -> str:
+    """Return scheme://netloc for *url*, or the url itself if not parseable."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:
+        pass
+    return url
+
+
 async def init_db() -> None:
     db = await get_db()
     # Pre-flight: if jobs table exists without content_hash, add it before
@@ -80,6 +92,24 @@ async def init_db() -> None:
     await db.executescript(SCHEMA_SQL)
     await _run_migrations(db)
     await db.commit()
+    await _log_schema_drift(db)
+
+
+async def _log_schema_drift(db: aiosqlite.Connection) -> None:
+    """Log whether website_url is nullable or NOT NULL in the live schema."""
+    import logging
+    _drift_log = logging.getLogger("db.schema_drift")
+    async with db.execute("PRAGMA table_info(companies)") as cur:
+        cols = {row[1]: {"notnull": row[3], "dflt_value": row[4]} for row in await cur.fetchall()}
+    if "website_url" in cols:
+        notnull = cols["website_url"]["notnull"]
+        constraint = "NOT NULL" if notnull else "nullable"
+        _drift_log.info("companies.website_url is %s in live schema", constraint)
+        if notnull:
+            _drift_log.warning(
+                "Live schema has website_url NOT NULL — auto-create will derive "
+                "website_url from careers_url to avoid constraint violations"
+            )
 
 
 SCHEMA_SQL = """
@@ -354,6 +384,10 @@ async def create_company(
     region: str | None = None,
 ) -> dict:
     db = await get_db()
+    # Derive website_url from careers_url when omitted so callers never
+    # trigger a NOT NULL constraint on the live schema (plan item 1).
+    if not website_url and careers_url:
+        website_url = _origin_from_url(careers_url)
     now = _now()
     company_id = _uuid()
     slug = slugify(name)
