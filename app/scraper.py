@@ -139,6 +139,28 @@ def _combined_wait_selectors(*selector_lists: list[str]) -> list[str]:
     return combined
 
 
+def _is_ignored_title(title: str, patterns: list[dict]) -> bool:
+    """Return True if job title matches any ignored-title pattern."""
+    import re as _re
+    normalized = (title or "").strip().lower()
+    if not normalized:
+        return False
+    for p in patterns:
+        pat = p.get("title_pattern", "")
+        match_type = p.get("match_type", "exact")
+        if match_type == "exact" and normalized == pat:
+            return True
+        if match_type == "contains" and pat in normalized:
+            return True
+        if match_type == "regex":
+            try:
+                if _re.search(pat, normalized, _re.IGNORECASE):
+                    return True
+            except _re.error:
+                pass
+    return False
+
+
 async def scrape_url(
     url: str,
     company_name: str | None = None,
@@ -147,6 +169,7 @@ async def scrape_url(
     debug: bool = False,
     deep: bool = False,
     request_id: str = "",
+    ignored_title_patterns: list[dict] | None = None,
 ) -> dict:
     """Scrape *url* with Playwright and return parsed job listings.
 
@@ -182,6 +205,7 @@ async def scrape_url(
                 timeout=timeout,
                 debug=debug,
                 deep=deep,
+                ignored_title_patterns=ignored_title_patterns or [],
                 adapter=adapter,
                 parser_name=parser_name,
                 user_agent=_USER_AGENTS[(attempt - 1) % len(_USER_AGENTS)],
@@ -245,6 +269,7 @@ async def _scrape_attempt(
     timeout: int,
     debug: bool,
     deep: bool,
+    ignored_title_patterns: list[dict],
     adapter,
     parser_name: str,
     user_agent: str,
@@ -339,6 +364,19 @@ async def _scrape_attempt(
             )
             log.info("Parsed %d jobs from '%s' using %s [%s]", len(jobs), url, parser_name, request_id)
 
+            # ── Filter ignored titles before detail fetches ─────────────────
+            ignored_count = 0
+            if ignored_title_patterns and jobs:
+                filtered = []
+                for _job in jobs:
+                    if _is_ignored_title(_job.get("title", ""), ignored_title_patterns):
+                        ignored_count += 1
+                    else:
+                        filtered.append(_job)
+                if ignored_count:
+                    log.info("Ignored %d jobs by title pattern [%s]", ignored_count, request_id)
+                jobs = filtered
+
             # ── Tier 2: deep scrape detail pages ────────────────────────────
             if deep and jobs and adapter.manifest.detail_page_support:
                 detail_limit = min(DEEP_SCRAPE_LIMIT, adapter.detail_limit)
@@ -352,6 +390,8 @@ async def _scrape_attempt(
                 )
 
             await browser.close()
+
+    ignored_count = locals().get("ignored_count", 0)  # set inside browser context above
 
     # Classify soft failures (0 jobs) from the rendered HTML
     soft_error_code: str | None = None

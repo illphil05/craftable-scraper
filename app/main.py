@@ -151,6 +151,7 @@ class ScrapeRequest(BaseModel):
     timeout: int = 30000
     debug: bool = False
     deep: bool = False
+    ignored_title_patterns: list[dict] | None = None
 
 
 class JobResult(BaseModel):
@@ -175,6 +176,7 @@ class ScrapeResponse(BaseModel):
     adapter_family: str | None = None
     adapter_variant: str | None = None
     jobs_count: int
+    ignored_count: int = 0
     elapsed_ms: int
     error: str | None = None
     error_code: str | None = None
@@ -248,6 +250,7 @@ async def scrape(request: Request, x_api_key: str = Header(default=""), req: Scr
     result = await scrape_url(
         req.url, req.company_name, req.timeout,
         debug=req.debug, deep=req.deep, request_id=request_id,
+        ignored_title_patterns=req.ignored_title_patterns or [],
     )
     elapsed = int((time.time() - start) * 1000)
 
@@ -264,6 +267,7 @@ async def scrape(request: Request, x_api_key: str = Header(default=""), req: Scr
         adapter_family=result.get("adapter_family"),
         adapter_variant=result.get("adapter_variant"),
         jobs_count=result["jobs_count"],
+        ignored_count=result.get("ignored_count", 0),
         elapsed_ms=elapsed,
         error=result.get("error"),
         error_code=result.get("error_code"),
