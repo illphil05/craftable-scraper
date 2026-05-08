@@ -555,7 +555,7 @@ async def _scrape_attempt(
                 try:
                     await page.wait_for_selector("[x-data]", state="attached", timeout=3_000)
                     await page.wait_for_timeout(400)
-                except Exception:
+                except PlaywrightTimeout:
                     pass  # Not an Alpine page — proceed with what we have
             else:
                 try:

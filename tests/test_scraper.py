@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app import scraper
 
@@ -230,7 +231,7 @@ class _AlpinePage(_FakePage):
         if selector == "[x-data]":
             self.alpine_wait_called = True
             if self._selector_timeout:
-                raise RuntimeError("Timeout waiting for selector")
+                raise PlaywrightTimeoutError("Timeout waiting for selector")
             return
         # Delegate non-Alpine selectors to parent behaviour
         return await super().wait_for_selector(selector, timeout=timeout, state=state)
