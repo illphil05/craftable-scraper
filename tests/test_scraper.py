@@ -117,6 +117,9 @@ class _FakePlaywright:
     async def launch(self, headless: bool, args: list[str]) -> _FakeBrowser:
         return _FakeBrowser(self._page)
 
+    async def connect_over_cdp(self, ws_url: str) -> _FakeBrowser:
+        return _FakeBrowser(self._page)
+
 
 class _FakePlaywrightManager:
     def __init__(self, page: _FakePage):
@@ -149,6 +152,7 @@ async def test_scrape_attempt_waits_for_resolved_adapter_selectors(monkeypatch):
         timeout=1_000,
         debug=False,
         deep=False,
+        ignored_title_patterns=[],
         adapter=initial_adapter,
         parser_name=initial_adapter.manifest.family,
         user_agent="test-agent",
@@ -190,6 +194,7 @@ async def test_scrape_attempt_passes_deep_scrape_settings_without_mutating_adapt
         timeout=1_000,
         debug=False,
         deep=True,
+        ignored_title_patterns=[],
         adapter=initial_adapter,
         parser_name=initial_adapter.manifest.family,
         user_agent="test-agent",
@@ -207,3 +212,86 @@ async def test_scrape_attempt_passes_deep_scrape_settings_without_mutating_adapt
     ]
     assert resolved_adapter.detail_limit == original_detail_limit
     assert resolved_adapter.detail_timeout_ms == original_detail_timeout_ms
+
+
+# ── Alpine wait tests ─────────────────────────────────────────────────────────
+
+class _AlpinePage(_FakePage):
+    """Page that has an [x-data] element — simulates an Alpine.js page."""
+
+    def __init__(self, *, alpine: bool = True, selector_timeout: bool = False):
+        super().__init__()
+        self._alpine = alpine
+        self._selector_timeout = selector_timeout
+        self.alpine_wait_called = False
+        self.alpine_settle_ms: list[int] = []
+
+    async def wait_for_selector(self, selector: str, *, state: str = "visible", timeout: int = 30_000) -> None:
+        if selector == "[x-data]":
+            self.alpine_wait_called = True
+            if self._selector_timeout:
+                raise RuntimeError("Timeout waiting for selector")
+            return
+        # Delegate non-Alpine selectors to parent behaviour
+        return await super().wait_for_selector(selector, timeout=timeout, state=state)
+
+    async def wait_for_timeout(self, timeout_ms: int) -> None:
+        self.alpine_settle_ms.append(timeout_ms)
+
+
+@pytest.mark.asyncio
+async def test_remote_browser_waits_for_alpine_selector(monkeypatch):
+    """After domcontentloaded, [x-data] selector wait is attempted for remote browser."""
+    page = _AlpinePage(alpine=True)
+    adapter = _FakeAdapter("generic", [".resolved-selector"])
+    adapter.manifest.needs_residential_proxy = True
+
+    monkeypatch.setattr(scraper, "async_playwright", lambda: _FakePlaywrightManager(page))
+    monkeypatch.setattr(scraper, "_brightdata_browser_ws", lambda: "wss://fake-brightdata")
+    monkeypatch.setattr(scraper, "get_adapter", lambda *a, **kw: adapter)
+
+    await scraper._scrape_attempt(
+        url="https://example.com/jobs",
+        company_name="Example",
+        timeout=10_000,
+        debug=False,
+        deep=False,
+        ignored_title_patterns=[],
+        adapter=adapter,
+        parser_name="generic",
+        user_agent="test-agent",
+        request_id="alpine-test",
+    )
+
+    assert page.alpine_wait_called, "[x-data] selector wait was not called for remote browser"
+    # 400ms settle wait should have been appended
+    assert 400 in page.alpine_settle_ms
+
+
+@pytest.mark.asyncio
+async def test_remote_browser_proceeds_when_alpine_selector_times_out(monkeypatch):
+    """If [x-data] wait times out (non-Alpine page), scrape continues without error."""
+    page = _AlpinePage(alpine=False, selector_timeout=True)
+    adapter = _FakeAdapter("generic", [".resolved-selector"])
+    adapter.manifest.needs_residential_proxy = True
+
+    monkeypatch.setattr(scraper, "async_playwright", lambda: _FakePlaywrightManager(page))
+    monkeypatch.setattr(scraper, "_brightdata_browser_ws", lambda: "wss://fake-brightdata")
+    monkeypatch.setattr(scraper, "get_adapter", lambda *a, **kw: adapter)
+
+    # Should not raise even though wait_for_selector times out for [x-data]
+    result = await scraper._scrape_attempt(
+        url="https://example.com/jobs",
+        company_name="Example",
+        timeout=10_000,
+        debug=False,
+        deep=False,
+        ignored_title_patterns=[],
+        adapter=adapter,
+        parser_name="generic",
+        user_agent="test-agent",
+        request_id="non-alpine-test",
+    )
+
+    assert result is not None
+    assert page.alpine_wait_called
