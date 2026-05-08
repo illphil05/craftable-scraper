@@ -33,6 +33,8 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from app.logging_config import get_logger
 from app.site_adapters import get_adapter
 from app.botasaurus_scraper import botasaurus_scrape
+from app.url_classifier import is_detail_page
+from app.parsers.detail import extract_job_from_detail_page
 
 
 def _brightdata_browser_ws() -> str | None:
@@ -166,6 +168,20 @@ def _combined_wait_selectors(*selector_lists: list[str]) -> list[str]:
             seen.add(selector)
             combined.append(selector)
     return combined
+
+
+_BASELINE_IGNORED_TITLES: list[dict] = [
+    {"title_pattern": "español", "match_type": "exact"},
+    {"title_pattern": "francais", "match_type": "exact"},
+    {"title_pattern": "français", "match_type": "exact"},
+    {"title_pattern": "deutsch", "match_type": "exact"},
+    {"title_pattern": "save", "match_type": "exact"},
+    {"title_pattern": "apply", "match_type": "exact"},
+    {"title_pattern": "close", "match_type": "exact"},
+    {"title_pattern": "sign in", "match_type": "exact"},
+    {"title_pattern": "log in", "match_type": "exact"},
+    {"title_pattern": r"^.{1,2}$", "match_type": "regex"},
+]
 
 
 def _is_ignored_title(title: str, patterns: list[dict]) -> bool:
@@ -334,6 +350,42 @@ async def scrape_url(
             "error_code": cb_ec,
             "extraction_attempts": [{"method": "circuit_breaker", "error_code": cb_ec}],
         }
+
+    # ── Step 0: Single job detail page — JSON-LD fast path ───────────────────
+    if is_detail_page(url):
+        log.info("Detail page detected for '%s' [%s]", url, request_id)
+        detail_attempt = await _scrape_attempt(
+            url=url,
+            company_name=company_name,
+            timeout=timeout,
+            debug=True,
+            deep=False,
+            ignored_title_patterns=[],
+            adapter=adapter,
+            parser_name=adapter.manifest.family,
+            user_agent=random.choice(_USER_AGENTS),
+            request_id=request_id,
+        )
+        job = extract_job_from_detail_page(
+            detail_attempt.get("html_sample", "") or "",
+            url,
+            company_name,
+        )
+        if job:
+            log.info("JSON-LD detail extraction: '%s' [%s]", job["title"], request_id)
+            return {
+                "jobs": [job],
+                "jobs_count": 1,
+                "company_name": job["company_name"],
+                "url": url,
+                "method": "jsonld:detail_page",
+                "adapter_family": "jsonld",
+                "adapter_variant": "detail_page",
+                "error": None,
+                "error_code": None,
+                "extraction_attempts": [{"method": "jsonld:detail_page", "jobs": 1}],
+            }
+        log.info("No JSON-LD on detail page '%s', falling through [%s]", url, request_id)
 
     # ── Step 1: API-first ─────────────────────────────────────────────────────
     api_result = await _api_first_attempt(url, company_name, adapter, request_id)
@@ -548,10 +600,11 @@ async def _scrape_attempt(
 
             # ── Filter ignored titles before detail fetches ─────────────────
             ignored_count = 0
-            if ignored_title_patterns and jobs:
+            effective_ignored = _BASELINE_IGNORED_TITLES + (ignored_title_patterns or [])
+            if effective_ignored and jobs:
                 filtered = []
                 for _job in jobs:
-                    if _is_ignored_title(_job.get("title", ""), ignored_title_patterns):
+                    if _is_ignored_title(_job.get("title", ""), effective_ignored):
                         ignored_count += 1
                     else:
                         filtered.append(_job)
