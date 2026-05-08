@@ -30,6 +30,20 @@ class SiteAdapter:
     detail_timeout_ms = 15_000
     detail_limit = 50
 
+    async def fetch_api_jobs(
+        self,
+        url: str,
+        company_name: str | None,
+        request_id: str,
+    ) -> list[dict[str, Any]] | None:
+        """Attempt to fetch jobs from a known REST/API endpoint.
+
+        Return a list of normalized job dicts when the adapter has a public
+        structured endpoint, or None to fall through to Playwright rendering.
+        The default implementation always returns None (opt-in per adapter).
+        """
+        return None
+
     def match_confidence(
         self,
         url: str,

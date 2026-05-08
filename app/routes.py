@@ -5,6 +5,7 @@ All handlers are async to work with the aiosqlite-backed db module.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -12,6 +13,17 @@ from pydantic import BaseModel, Field
 from app import db
 from app.outreach import build_outreach_import_payload, outreach_config_status, push_to_outreach
 from app.tech_detect import detect_systems
+
+
+def _origin_from_url(url: str) -> str:
+    """Return scheme://netloc for *url*, or the url itself if not parseable."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:
+        pass
+    return url
 
 router = APIRouter(prefix="/api")
 
@@ -204,6 +216,7 @@ async def save_scrape(body: SaveScrapeRequest):
             c = await db.create_company(
                 name=body.company_name,
                 careers_url=body.careers_url,
+                website_url=_origin_from_url(body.careers_url),
                 careers_source="career_site",
                 site_family=body.adapter_family,
                 site_variant=body.adapter_variant,
