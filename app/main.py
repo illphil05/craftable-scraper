@@ -86,6 +86,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(api_router)
 app.include_router(intelligence_router, prefix="/api")
 
+from fastapi.staticfiles import StaticFiles
+import os as _os
+
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+if _os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 

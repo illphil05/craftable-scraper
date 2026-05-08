@@ -5,3 +5,7 @@ venv/
 .env
 .DS_Store
 .worktrees/
+app/static/output.css
+node_modules/
+package-lock.json
+package.json
