@@ -6,7 +6,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Craftable Scraper</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/static/output.css">
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center">
 <div class="bg-white rounded-2xl shadow-lg max-w-sm w-full mx-4 p-8">
@@ -45,7 +45,7 @@ SCRAPER_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Craftable Scraper</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/static/output.css">
 <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
