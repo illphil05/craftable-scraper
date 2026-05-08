@@ -17,12 +17,15 @@ RUN playwright install chromium
 COPY app/ ./app/
 COPY tailwind.config.js .
 
-# Build Tailwind CSS (Node is needed only at build time)
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
-    && npm install -D tailwindcss \
-    && npx tailwindcss -i ./app/static/input.css -o ./app/static/output.css --minify \
-    && apt-get purge -y nodejs npm && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* node_modules package.json package-lock.json
+# Build Tailwind CSS v3 via standalone CLI (no Node.js required)
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && curl -fsSL https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64 \
+       -o /usr/local/bin/tailwindcss \
+    && chmod +x /usr/local/bin/tailwindcss \
+    && tailwindcss -i ./app/static/input.css -o ./app/static/output.css --minify \
+    && rm /usr/local/bin/tailwindcss \
+    && apt-get purge -y curl && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 3010
 
