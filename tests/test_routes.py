@@ -50,6 +50,11 @@ def test_returns_none_when_careers_url_is_none():
 def test_returns_none_for_invalid_url():
     assert _company_website_from_careers_url("not-a-url") is None
 
+def test_does_not_match_ats_name_as_substring_of_company_domain():
+    # "taleo.net" must not match "notataleo.net" — suffix check, not substring
+    assert _company_website_from_careers_url("https://notataleo.net/careers") \
+        == "https://notataleo.net"
+
 def test_prefers_explicit_website_url_via_caller():
     # The helper only derives — callers pass explicit website_url when available.
     # Verify that a known-good URL passes through as-is.

@@ -52,7 +52,7 @@ def _company_website_from_careers_url(careers_url: str | None) -> str | None:
     try:
         parsed = urlparse(careers_url)
         netloc = parsed.netloc.lower()
-        if any(ats in netloc for ats in _ATS_HOSTNAMES):
+        if any(netloc == ats or netloc.endswith("." + ats) for ats in _ATS_HOSTNAMES):
             return None
         if parsed.scheme and netloc:
             return f"{parsed.scheme}://{netloc}"

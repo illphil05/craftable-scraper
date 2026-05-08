@@ -386,6 +386,7 @@ async def scrape_url(
             }
         log.info("No JSON-LD on detail page '%s', falling through [%s]", url, request_id)
 
+
     # ── Step 1: API-first ─────────────────────────────────────────────────────
     api_result = await _api_first_attempt(url, company_name, adapter, request_id)
     if api_result is not None:

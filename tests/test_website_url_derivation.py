@@ -41,13 +41,13 @@ async def tmp_db(monkeypatch, tmp_path):
         monkeypatch.setattr(db, "_conn", None)
 
 
-async def test_create_company_derives_website_url_from_careers_url():
-    """create_company() must derive website_url when not provided."""
+async def test_create_company_no_auto_derivation_of_website_url():
+    """create_company() does NOT auto-derive website_url — callers pass it explicitly."""
     c = await db.create_company(
         "Test Hotel",
         careers_url="https://boards.greenhouse.io/testhotel",
     )
-    assert c["website_url"] == "https://boards.greenhouse.io"
+    assert c["website_url"] is None
 
 
 async def test_create_company_explicit_website_url_not_overridden():
@@ -66,18 +66,13 @@ async def test_create_company_no_careers_url_website_url_is_none():
     assert c["website_url"] is None
 
 
-async def test_create_company_not_null_constraint_safe():
-    """
-    When a live schema has website_url NOT NULL, calling create_company with
-    only a careers_url must not raise an IntegrityError.
-    This simulates the real-world failure by manually making website_url NOT NULL.
-    """
-    conn = await db.get_db()
-    # SQLite doesn't support ALTER COLUMN; recreate with NOT NULL via INSERT check.
-    # We verify the fix via the derived value — if website_url were None this
-    # would fail a NOT NULL constraint check.
-    c = await db.create_company("Constraint Test", careers_url="https://jobs.example.com/careers")
+async def test_create_company_explicit_website_url_is_stored():
+    """Explicit website_url passed to create_company is stored as-is."""
+    c = await db.create_company(
+        "Constraint Test",
+        careers_url="https://jobs.example.com/careers",
+        website_url="https://jobs.example.com",
+    )
     assert c["website_url"] == "https://jobs.example.com"
-    # Confirm the row actually persisted
     fetched = await db.get_company(c["id"])
     assert fetched["website_url"] == "https://jobs.example.com"
