@@ -6,6 +6,14 @@ _JSONLD_RE = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.S | re.I,
 )
+_OG_RE = re.compile(r'<meta[^>]+property=["\']og:(\w+)["\'][^>]+content=["\']([^"\']*)["\']', re.I)
+_META_RE = re.compile(r'<meta[^>]+name=["\'](\w+)["\'][^>]+content=["\']([^"\']*)["\']', re.I)
+_TITLE_RE = re.compile(r'<title[^>]*>(.*?)</title>', re.S | re.I)
+
+# "Job Title at Company Name in City, ST" — common hospitality job board pattern
+_DESC_AT_RE = re.compile(r'^apply\s+now\s+for\s+(.+?)\s+at\s+(.+?)\s+in\s+(.+?)(?:\s*[—\-]|$)', re.I)
+# "<title>Job Title at Company | SiteName</title>"
+_TITLE_AT_RE = re.compile(r'^(.+?)\s+at\s+(.+?)\s*\|', re.I)
 
 
 def _extract_location(node: dict) -> str:
@@ -19,12 +27,7 @@ def _extract_location(node: dict) -> str:
     return ", ".join(p for p in parts if p)
 
 
-def extract_job_from_detail_page(
-    html: str,
-    url: str,
-    company_name: str | None,
-) -> dict | None:
-    """Try JSON-LD Schema.org JobPosting extraction. Returns None if not found."""
+def _try_jsonld(html: str, url: str, company_name: str | None) -> dict | None:
     for m in _JSONLD_RE.finditer(html):
         try:
             data = json.loads(m.group(1))
@@ -55,3 +58,51 @@ def extract_job_from_detail_page(
                 "source_confidence": 0.99,
             }
     return None
+
+
+def _try_og_tags(html: str, url: str, company_name: str | None) -> dict | None:
+    og = {m.group(1): m.group(2) for m in _OG_RE.finditer(html[:8_000])}
+    title = og.get("title", "").strip()
+    if not title:
+        return None
+
+    description = og.get("description", "")
+    location = ""
+    detected_company = company_name or ""
+
+    # Try to extract company + location from og:description
+    m = _DESC_AT_RE.match(description)
+    if m:
+        detected_company = m.group(2).strip() or detected_company
+        location = m.group(3).strip()
+
+    # Fall back to <title> tag for company
+    if not detected_company:
+        t = _TITLE_RE.search(html[:4_000])
+        if t:
+            tm = _TITLE_AT_RE.match(t.group(1).strip())
+            if tm:
+                detected_company = tm.group(2).strip()
+
+    return {
+        "title": title,
+        "company_name": detected_company,
+        "location": location,
+        "url": og.get("url") or url,
+        "department": "",
+        "description": description,
+        "source_site_family": "og_meta",
+        "source_site_variant": "detail_page",
+        "source_confidence": 0.85,
+    }
+
+
+def extract_job_from_detail_page(
+    html: str,
+    url: str,
+    company_name: str | None,
+) -> dict | None:
+    """Extract a single job from a detail page. Tries JSON-LD first, OG tags second."""
+    if not html:
+        return None
+    return _try_jsonld(html, url, company_name) or _try_og_tags(html, url, company_name)
