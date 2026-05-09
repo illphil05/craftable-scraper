@@ -28,7 +28,6 @@ def test_save_scrape_request_uses_independent_mutable_defaults():
     assert second.jobs == []
 
 
-<<<<<<< HEAD
 # ── _company_website_from_careers_url ─────────────────────────────────────────
 
 def test_derives_origin_from_company_owned_careers_subdomain():
