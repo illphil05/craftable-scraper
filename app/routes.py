@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app import db
 from app.outreach import build_outreach_import_payload, outreach_config_status, push_to_outreach
 from app.tech_detect import detect_systems
+from app.url_classifier import derive_careers_root_url
 
 
 _ATS_HOSTNAMES = frozenset({
@@ -244,14 +245,16 @@ async def save_scrape(body: SaveScrapeRequest):
 
     # Auto-find or create company
     if not company_id and body.careers_url:
-        existing = await db.find_company_by_careers_url(body.careers_url)
+        canonical_careers_url = derive_careers_root_url(body.careers_url)
+        existing = await db.find_company_by_careers_url(body.careers_url) \
+            or await db.find_company_by_careers_url(canonical_careers_url)
         if existing:
             company_id = existing["id"]
         elif body.company_name:
             c = await db.create_company(
                 name=body.company_name,
-                careers_url=body.careers_url,
-                website_url=_company_website_from_careers_url(body.careers_url),
+                careers_url=canonical_careers_url,
+                website_url=_company_website_from_careers_url(canonical_careers_url),
                 careers_source="career_site",
                 site_family=body.adapter_family,
                 site_variant=body.adapter_variant,

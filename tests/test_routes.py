@@ -1,4 +1,5 @@
 from app.routes import SaveScrapeRequest, _company_website_from_careers_url
+from app.url_classifier import derive_careers_root_url
 
 
 def test_save_scrape_request_uses_independent_mutable_defaults():
@@ -60,3 +61,31 @@ def test_prefers_explicit_website_url_via_caller():
     # Verify that a known-good URL passes through as-is.
     result = _company_website_from_careers_url("https://careers.marriott.com/jobs/1234")
     assert result == "https://careers.marriott.com"
+
+
+# ── derive_careers_root_url ───────────────────────────────────────────────────
+
+def test_strips_hcareers_detail_to_listing_root():
+    url = "https://www.hcareers.com/jobs/4336093-finance-specialist-grand-casino-onamia-mn"
+    assert derive_careers_root_url(url) == "https://www.hcareers.com/jobs"
+
+def test_strips_hospitalityjobs_detail_to_listing_root():
+    url = "https://www.hospitalityjobs.com/jobs/9876543-bartender-new-york-ny"
+    assert derive_careers_root_url(url) == "https://www.hospitalityjobs.com/jobs"
+
+def test_listing_root_passes_through_unchanged():
+    assert derive_careers_root_url("https://www.hcareers.com/jobs") == "https://www.hcareers.com/jobs"
+
+def test_non_job_board_url_passes_through_unchanged():
+    assert derive_careers_root_url("https://boards.greenhouse.io/acme/jobs/123") \
+        == "https://boards.greenhouse.io/acme/jobs/123"
+
+def test_company_careers_page_passes_through_unchanged():
+    assert derive_careers_root_url("https://careers.marriott.com/jobs/1234") \
+        == "https://careers.marriott.com/jobs/1234"
+
+def test_empty_string_passes_through():
+    assert derive_careers_root_url("") == ""
+
+def test_none_equivalent_passes_through():
+    assert derive_careers_root_url("https://example.com") == "https://example.com"

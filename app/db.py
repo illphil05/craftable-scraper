@@ -107,8 +107,8 @@ async def _log_schema_drift(db: aiosqlite.Connection) -> None:
         _drift_log.info("companies.website_url is %s in live schema", constraint)
         if notnull:
             _drift_log.warning(
-                "Live schema has website_url NOT NULL — auto-create will derive "
-                "website_url from careers_url to avoid constraint violations"
+                "Live schema has website_url NOT NULL — routes.py derives "
+                "website_url via _company_website_from_careers_url() on INSERT"
             )
 
 
