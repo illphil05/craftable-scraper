@@ -38,8 +38,8 @@ async def _call_save_scrape(**kwargs) -> dict:
         return await save_scrape_handler(body)
 
 
-async def test_save_scrape_auto_creates_company_with_website_url():
-    """When company_id is absent, auto-created company gets website_url derived from careers_url."""
+async def test_save_scrape_auto_creates_company_with_null_website_url_for_ats():
+    """ATS-hosted careers URLs must not be stored as company website_url."""
     result = await _call_save_scrape(
         careers_url="https://boards.greenhouse.io/acmecorp",
         company_name="Acme Corp",
@@ -56,7 +56,7 @@ async def test_save_scrape_auto_creates_company_with_website_url():
     assert result["ok"] is True
     company = result["company"]
     assert company["name"] == "Acme Corp"
-    assert company["website_url"] == "https://boards.greenhouse.io"
+    assert company["website_url"] is None
     assert company["site_family"] == "greenhouse"
     assert company["site_variant"] == "api"
 
@@ -96,8 +96,8 @@ async def test_save_scrape_carries_adapter_metadata():
     assert history[0]["adapter_variant"] == "api"
 
 
-async def test_save_scrape_derives_website_url_from_lever_careers_url():
-    """website_url must be derived correctly for Lever-style careers URLs."""
+async def test_save_scrape_stores_null_website_url_for_lever_ats():
+    """Lever ATS URLs must not be stored as company website_url."""
     result = await _call_save_scrape(
         careers_url="https://jobs.lever.co/somecafe",
         company_name="Some Cafe",
@@ -108,4 +108,4 @@ async def test_save_scrape_derives_website_url_from_lever_careers_url():
         elapsed_ms=150,
     )
     company = result["company"]
-    assert company["website_url"] == "https://jobs.lever.co"
+    assert company["website_url"] is None

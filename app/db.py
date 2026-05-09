@@ -384,10 +384,6 @@ async def create_company(
     region: str | None = None,
 ) -> dict:
     db = await get_db()
-    # Derive website_url from careers_url when omitted so callers never
-    # trigger a NOT NULL constraint on the live schema (plan item 1).
-    if not website_url and careers_url:
-        website_url = _origin_from_url(careers_url)
     now = _now()
     company_id = _uuid()
     slug = slugify(name)

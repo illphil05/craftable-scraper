@@ -15,6 +15,20 @@ from app.outreach import build_outreach_import_payload, outreach_config_status, 
 from app.tech_detect import detect_systems
 
 
+_ATS_HOSTNAMES = frozenset({
+    "boards.greenhouse.io",
+    "jobs.lever.co",
+    "icims.com",
+    "myworkdayjobs.com",
+    "recruiting.paylocity.com",
+    "taleo.net",
+    "jobs.ashbyhq.com",
+    "app.smartrecruiters.com",
+    "apply.workable.com",
+    "jobs.jobvite.com",
+})
+
+
 def _origin_from_url(url: str) -> str:
     """Return scheme://netloc for *url*, or the url itself if not parseable."""
     try:
@@ -24,6 +38,27 @@ def _origin_from_url(url: str) -> str:
     except Exception:
         pass
     return url
+
+
+def _company_website_from_careers_url(careers_url: str | None) -> str | None:
+    """Derive a company homepage from a careers URL, skipping ATS-hosted domains.
+
+    Returns None when the careers URL is ATS-hosted (e.g. boards.greenhouse.io)
+    because the ATS origin is not the company's website. Returns the origin for
+    company-owned careers subdomains (e.g. careers.acmehotel.com).
+    """
+    if not careers_url:
+        return None
+    try:
+        parsed = urlparse(careers_url)
+        netloc = parsed.netloc.lower()
+        if any(netloc == ats or netloc.endswith("." + ats) for ats in _ATS_HOSTNAMES):
+            return None
+        if parsed.scheme and netloc:
+            return f"{parsed.scheme}://{netloc}"
+    except Exception:
+        pass
+    return None
 
 router = APIRouter(prefix="/api")
 
@@ -216,7 +251,7 @@ async def save_scrape(body: SaveScrapeRequest):
             c = await db.create_company(
                 name=body.company_name,
                 careers_url=body.careers_url,
-                website_url=_origin_from_url(body.careers_url),
+                website_url=_company_website_from_careers_url(body.careers_url),
                 careers_source="career_site",
                 site_family=body.adapter_family,
                 site_variant=body.adapter_variant,

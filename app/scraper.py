@@ -386,6 +386,7 @@ async def scrape_url(
             }
         log.info("No JSON-LD on detail page '%s', falling through [%s]", url, request_id)
 
+
     # ── Step 1: API-first ─────────────────────────────────────────────────────
     api_result = await _api_first_attempt(url, company_name, adapter, request_id)
     if api_result is not None:
@@ -549,6 +550,14 @@ async def _scrape_attempt(
                         log.debug("Non-2xx HTTP status from remote browser (proceeding): %s [%s]", exc, request_id)
                     else:
                         raise
+                # If the page uses Alpine.js, wait for it to initialise before
+                # reading the DOM. Uses a short timeout so non-Alpine pages
+                # continue without penalty.
+                try:
+                    await page.wait_for_selector("[x-data]", state="attached", timeout=3_000)
+                    await page.wait_for_timeout(400)
+                except PlaywrightTimeout:
+                    pass  # Not an Alpine page — proceed with what we have
             else:
                 try:
                     await page.goto(url, wait_until="networkidle", timeout=timeout)
