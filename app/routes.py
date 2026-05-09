@@ -246,8 +246,9 @@ async def save_scrape(body: SaveScrapeRequest):
     # Auto-find or create company
     if not company_id and body.careers_url:
         canonical_careers_url = derive_careers_root_url(body.careers_url)
-        existing = await db.find_company_by_careers_url(body.careers_url) \
-            or await db.find_company_by_careers_url(canonical_careers_url)
+        existing = await db.find_company_by_careers_url(canonical_careers_url)
+        if not existing and canonical_careers_url != body.careers_url:
+            existing = await db.find_company_by_careers_url(body.careers_url)
         if existing:
             company_id = existing["id"]
         elif body.company_name:

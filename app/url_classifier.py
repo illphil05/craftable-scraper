@@ -11,23 +11,17 @@ _DETAIL_PATTERNS = [
     re.compile(r"/apply/\d+"),
 ]
 
-# These hosts use non-standard URL structures; classify by path depth instead.
-_DETAIL_PAGE_HOSTS = {
-    "www.hcareers.com",
-    "hcareers.com",
-    "www.hospitalityjobs.com",
-    "hospitalityjobs.com",
-}
-
-_HOST_DETAIL_RE = re.compile(r"/job-details?/|/jobs?/\d{4,}|/jobs?/[^/]+/[^/]+")
-
-# Maps job-board hosts to their canonical listing root path.
-_JOB_BOARD_ROOTS: dict[str, str] = {
+# Single source of truth for job-board hosts.
+# Keys are used for detail-page classification; values are the canonical listing root.
+# Adding a new board here covers both is_detail_page() and derive_careers_root_url().
+_JOB_BOARDS: dict[str, str] = {
     "www.hcareers.com": "/jobs",
     "hcareers.com": "/jobs",
     "www.hospitalityjobs.com": "/jobs",
     "hospitalityjobs.com": "/jobs",
 }
+
+_HOST_DETAIL_RE = re.compile(r"/job-details?/|/jobs?/\d{4,}|/jobs?/[^/]+/[^/]+")
 
 
 def is_detail_page(url: str) -> bool:
@@ -38,19 +32,13 @@ def is_detail_page(url: str) -> bool:
         return False
     host = parsed.netloc.lower()
     path = parsed.path.lower()
-    if host in _DETAIL_PAGE_HOSTS:
+    if host in _JOB_BOARDS:
         return bool(_HOST_DETAIL_RE.search(path))
     return any(p.search(path) for p in _DETAIL_PATTERNS)
 
 
 def derive_careers_root_url(url: str) -> str:
-    """Return the listing root for a URL, stripping job-detail paths.
-
-    For known job-board hosts (hcareers, hospitalityjobs), a detail-page URL
-    like /jobs/4336093-finance-specialist-... becomes /jobs.
-    For all other URLs, including ATS and company-owned pages, the URL is
-    returned unchanged — they don't have a meaningful listing root to derive.
-    """
+    """Strip a job-board detail path to its listing root, or return url unchanged."""
     if not url:
         return url
     try:
@@ -58,7 +46,7 @@ def derive_careers_root_url(url: str) -> str:
     except Exception:
         return url
     host = parsed.netloc.lower()
-    root_path = _JOB_BOARD_ROOTS.get(host)
+    root_path = _JOB_BOARDS.get(host)
     if root_path and _HOST_DETAIL_RE.search(parsed.path.lower()):
         return f"{parsed.scheme}://{parsed.netloc}{root_path}"
     return url
