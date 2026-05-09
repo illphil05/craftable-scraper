@@ -38,7 +38,11 @@ def is_detail_page(url: str) -> bool:
 
 
 def derive_careers_root_url(url: str) -> str:
-    """Strip a job-board detail path to its listing root, or return url unchanged."""
+    """Strip a job-board detail path to its listing root, or return url unchanged.
+
+    hcareers.com/jobs/4336093-finance-specialist-... → hcareers.com/jobs
+    ATS and company-owned pages pass through unchanged.
+    """
     if not url:
         return url
     try:
