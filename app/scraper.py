@@ -186,7 +186,6 @@ _BASELINE_IGNORED_TITLES: list[dict] = [
 
 def _is_ignored_title(title: str, patterns: list[dict]) -> bool:
     """Return True if job title matches any ignored-title pattern."""
-    import re as _re
     normalized = (title or "").strip().lower()
     if not normalized:
         return False
@@ -199,9 +198,9 @@ def _is_ignored_title(title: str, patterns: list[dict]) -> bool:
             return True
         if match_type == "regex":
             try:
-                if _re.search(pat, normalized, _re.IGNORECASE):
+                if re.search(pat, normalized, re.IGNORECASE):
                     return True
-            except _re.error:
+            except re.error:
                 pass
     return False
 

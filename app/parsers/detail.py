@@ -6,8 +6,9 @@ _JSONLD_RE = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.S | re.I,
 )
-_OG_RE = re.compile(r'<meta[^>]+property=["\']og:(\w+)["\'][^>]+content=["\']([^"\']*)["\']', re.I)
-_META_RE = re.compile(r'<meta[^>]+name=["\'](\w+)["\'][^>]+content=["\']([^"\']*)["\']', re.I)
+_OG_TAG_RE = re.compile(r'<meta\b[^>]+>', re.I)
+_OG_PROP_RE = re.compile(r'property=["\']og:(\w+)["\']', re.I)
+_OG_CONTENT_RE = re.compile(r'content=["\']([^"\']*)["\']', re.I)
 _TITLE_RE = re.compile(r'<title[^>]*>(.*?)</title>', re.S | re.I)
 
 # "Job Title at Company Name in City, ST" — common hospitality job board pattern
@@ -61,7 +62,12 @@ def _try_jsonld(html: str, url: str, company_name: str | None) -> dict | None:
 
 
 def _try_og_tags(html: str, url: str, company_name: str | None) -> dict | None:
-    og = {m.group(1): m.group(2) for m in _OG_RE.finditer(html[:8_000])}
+    og: dict[str, str] = {}
+    for tag in _OG_TAG_RE.finditer(html[:8_000]):
+        pm = _OG_PROP_RE.search(tag.group())
+        cm = _OG_CONTENT_RE.search(tag.group())
+        if pm and cm:
+            og[pm.group(1)] = cm.group(1)
     title = og.get("title", "").strip()
     if not title:
         return None

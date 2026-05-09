@@ -9,3 +9,4 @@ app/static/output.css
 node_modules/
 package-lock.json
 package.json
+AGENT_LOG.md
