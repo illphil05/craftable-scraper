@@ -2,14 +2,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.site_adapters.base import SiteAdapter, SiteManifest
 
-class _FakeAdapter:
-    class manifest:
-        family = "greenhouse"
-        variant = "base"
 
-    @staticmethod
-    def parse_jobs(html, url, company_name=None, *, match_confidence=1.0):
+class _FakeAdapter(SiteAdapter):
+    manifest = SiteManifest(
+        family="greenhouse",
+        variant="base",
+        url_patterns=("greenhouse.io",),
+    )
+
+    def parse_jobs(self, html, url, company_name=None, *, match_confidence=1.0):
         if "<job>" in html:
             return [{"title": "Chef", "company_name": company_name or "Acme"}]
         return []
