@@ -99,6 +99,24 @@ def test_workable_empty_html_returns_empty():
     assert jobs == []
 
 
+def test_workable_extracts_url_from_nested_card():
+    """URL must be found even when the card contains nested divs (not truncated at first </div>)."""
+    from app.parsers.workable import parse
+    html = (
+        '<html><body>'
+        '<div data-ui="job-summary">'
+        '<div class="styles__content"><h3 class="job-title">Chef</h3></div>'
+        '<span class="location">Austin, TX</span>'
+        '<a href="https://apply.workable.com/co/j/XYZ/">Apply</a>'
+        '</div>'
+        '</body></html>'
+    )
+    jobs = parse(html, WORKABLE_URL)
+    assert len(jobs) == 1
+    assert jobs[0]["url"] == "https://apply.workable.com/co/j/XYZ/"
+    assert jobs[0]["location"] == "Austin, TX"
+
+
 def test_workable_url_falls_back_to_page_url_when_no_href():
     from app.parsers.workable import parse
     html = (
@@ -140,6 +158,21 @@ def test_jobvite_returns_jobs():
     assert jobs[0]["url"] == "https://jobs.jobvite.com/marriott/careers/jobs/ABC123"
     assert jobs[0]["location"] == "Las Vegas, NV"
     assert jobs[0]["company_name"] == "Marriott"
+
+
+def test_jobvite_class_before_href():
+    """Parser must match when class appears before href in the anchor tag."""
+    from app.parsers.jobvite import parse
+    html = (
+        '<ul>'
+        '<li><a class="jv-job-list-name" href="/co/jobs/001">Sommelier</a>'
+        '<span class="jv-job-list-location">New York, NY</span></li>'
+        '</ul>'
+    )
+    jobs = parse(html, JOBVITE_URL)
+    assert len(jobs) == 1
+    assert jobs[0]["title"] == "Sommelier"
+    assert jobs[0]["url"] == "https://jobs.jobvite.com/co/jobs/001"
 
 
 def test_jobvite_empty_returns_empty():
@@ -195,6 +228,21 @@ def test_taleo_empty_returns_empty():
     from app.parsers.taleo import parse
     jobs = parse("<html><body></body></html>", TALEO_URL)
     assert jobs == []
+
+
+def test_taleo_class_before_href():
+    """Parser must match when class appears before href in the anchor tag."""
+    from app.parsers.taleo import parse
+    html = (
+        '<table><tr>'
+        '<td><a class="jobTitle" href="/careersection/2/jobdetail.ftl?job=007">Concierge</a></td>'
+        '<td><span class="jobLocation">Chicago, IL</span></td>'
+        '</tr></table>'
+    )
+    jobs = parse(html, TALEO_URL)
+    assert len(jobs) == 1
+    assert jobs[0]["title"] == "Concierge"
+    assert "job=007" in jobs[0]["url"]
 
 
 def test_taleo_absolute_href_preserved():
