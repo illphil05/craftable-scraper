@@ -47,6 +47,20 @@ def test_api_first_zero_fallback_depth():
     assert q["signals"]["used_fallback"] is False
 
 
+def test_api_zero_jobs_is_trusted_no_openings():
+    """API returning [] is a trusted 'no openings' signal, not a parse failure.
+    Auth/network errors raise before reaching this path, so error_code is None
+    and quality must stay high — not be penalised as a parse failure.
+    """
+    q = _compute_scrape_quality(
+        _result(jobs=[], method="api:greenhouse",
+                attempts=[{"method": "api:greenhouse"}], error_code=None),
+        _adapter(0.95),
+    )
+    assert q["grade"] == "high"
+    assert q["signals"]["error_code"] is None
+
+
 def test_playwright_single_attempt_is_depth_1():
     q = _compute_scrape_quality(_result(), _adapter(0.95))
     assert q["signals"]["fallback_depth"] == 1

@@ -309,6 +309,8 @@ async def _api_first_attempt(
         "adapter_family": adapter.manifest.family,
         "adapter_variant": "api",
         "jobs_count": len(jobs),
+        # API returning [] is a trusted "no openings" signal — not a parse
+        # failure. Auth/network errors are raised before reaching here.
         "error": None,
         "error_code": None,
         "extraction_attempts": [
