@@ -66,6 +66,23 @@ async def test_botasaurus_scrape_driver_error_raises():
 
 
 @pytest.mark.asyncio
+async def test_api_first_falls_through_for_adapter_without_fetch_api_jobs():
+    """Adapter that omits fetch_api_jobs entirely must not raise — getattr guard covers it."""
+    from app.scraper import _api_first_attempt
+
+    class _LegacyAdapter:
+        """Simulates a third-party adapter that predates SiteAdapter and omits fetch_api_jobs."""
+        class manifest:
+            family = "legacy"
+
+        def parse_jobs(self, html, url, company_name=None, *, match_confidence=1.0):
+            return []
+
+    result = await _api_first_attempt("https://example.com/jobs", "Acme", _LegacyAdapter(), "req-x")
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_scrape_url_falls_back_to_botasaurus_when_playwright_fails():
     from app import scraper
 
