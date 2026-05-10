@@ -106,6 +106,7 @@ class SaveScrapeRequest(BaseModel):
     error_code: str | None = None
     html_size: int | None = None
     artifact_refs: dict[str, Any] = Field(default_factory=dict)
+    scrape_quality: dict[str, Any] | None = None
     deep: bool = False
     jobs: list[dict[str, Any]] = Field(default_factory=list)
     html: str = ""
@@ -265,6 +266,10 @@ async def save_scrape(body: SaveScrapeRequest):
     if not company_id:
         raise HTTPException(400, "No company_id and could not auto-resolve company")
 
+    artifact_refs = dict(body.artifact_refs)
+    if body.scrape_quality:
+        artifact_refs["scrape_quality"] = body.scrape_quality
+
     scrape_id = await db.save_scrape(
         company_id=company_id,
         url=body.careers_url,
@@ -276,7 +281,7 @@ async def save_scrape(body: SaveScrapeRequest):
         error=body.error,
         error_code=body.error_code,
         html_size=body.html_size,
-        artifact_refs=body.artifact_refs,
+        artifact_refs=artifact_refs,
         deep=body.deep,
     )
 
