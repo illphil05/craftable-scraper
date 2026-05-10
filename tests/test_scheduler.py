@@ -40,7 +40,8 @@ async def test_scheduled_scrape_saves_correctly():
     with (
         patch("app.scheduler.db.list_companies", new_callable=AsyncMock) as mock_list,
         patch("app.scheduler.db.save_scrape", new_callable=AsyncMock, return_value="s1") as mock_save,
-        patch("app.scheduler.db.save_jobs", new_callable=AsyncMock),
+        patch("app.scheduler.db.save_jobs", new_callable=AsyncMock,
+              return_value={"new": jobs, "changed": [], "closed": []}),
         patch("app.scheduler.scrape_url", new_callable=AsyncMock, return_value=result),
         patch("app.scheduler.push_to_outreach", new_callable=AsyncMock, return_value={"ok": True, "skipped": False}),
     ):
@@ -73,7 +74,8 @@ async def test_scheduled_scrape_pushes_to_outreach():
     with (
         patch("app.scheduler.db.list_companies", new_callable=AsyncMock) as mock_list,
         patch("app.scheduler.db.save_scrape", new_callable=AsyncMock, return_value="s1"),
-        patch("app.scheduler.db.save_jobs", new_callable=AsyncMock),
+        patch("app.scheduler.db.save_jobs", new_callable=AsyncMock,
+              return_value={"new": jobs, "changed": [], "closed": []}),
         patch("app.scheduler.scrape_url", new_callable=AsyncMock, return_value=result),
         patch("app.scheduler.push_to_outreach", new_callable=AsyncMock, return_value={"ok": True, "skipped": False}) as mock_push,
     ):
