@@ -7,6 +7,7 @@ Environment variables:
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -14,7 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.logging_config import get_logger
 from app import db
 from app.intelligence.enricher import run_enrichment_batch
-from app.outreach import build_outreach_import_payload, push_to_outreach
+from app.outreach import build_outreach_import_payload, push_to_outreach, fetch_outreach_config
 from app.scraper import scrape_url
 
 log = get_logger("scheduler")
@@ -27,6 +28,11 @@ _PAGE_SIZE = 500
 
 async def _run_scheduled_scrape() -> None:
     """Re-scrape every company that has a careers_url set."""
+    # Pull latest config from outreach before starting — failure falls back to empty
+    outreach_cfg = await fetch_outreach_config()
+    extra_ignored_patterns = outreach_cfg.get("ignored_title_patterns") or []
+    blocked_domains = set(outreach_cfg.get("blocked_domains") or [])
+
     page_num = 1
     companies = []
     while True:
@@ -41,12 +47,33 @@ async def _run_scheduled_scrape() -> None:
         log.info("Scheduled scrape: no companies with careers_url, skipping")
         return
 
-    log.info("Scheduled scrape starting for %d companies", len(companies))
+    log.info(
+        "Scheduled scrape starting for %d companies (%d extra ignored patterns, %d blocked domains)",
+        len(companies), len(extra_ignored_patterns), len(blocked_domains),
+    )
     success = fail = 0
+    total_ignored = 0
+    total_blocked = 0
     for company in companies:
         url = company["careers_url"]
+
+        # Skip companies whose careers page is on a blocked domain
         try:
-            res = await scrape_url(url, company_name=company["name"], request_id="scheduled")
+            domain = urlparse(url).hostname or ""
+        except Exception:
+            domain = ""
+        if domain and domain in blocked_domains:
+            log.debug("Skipping blocked domain '%s' for company '%s'", domain, company.get("name"))
+            total_blocked += 1
+            continue
+
+        try:
+            res = await scrape_url(
+                url,
+                company_name=company["name"],
+                request_id="scheduled",
+                ignored_title_patterns=extra_ignored_patterns,
+            )
             scrape_id = await db.save_scrape(
                 company_id=company["id"],
                 url=url,
@@ -61,16 +88,25 @@ async def _run_scheduled_scrape() -> None:
                 artifact_refs=res.get("artifact_refs") or {},
                 deep=False,
             )
+            run_ignored = res.get("ignored_count", 0)
+            total_ignored += run_ignored
             if res["jobs"]:
                 await db.save_jobs(company["id"], scrape_id, res["jobs"])
-                payload = build_outreach_import_payload(company, url, res["jobs"])
+                payload = build_outreach_import_payload(
+                    company, url, res["jobs"],
+                    ignored_count=run_ignored,
+                    blocked_domain_count=0,
+                )
                 await push_to_outreach(payload)
             success += 1
         except Exception as exc:
             log.error("Scheduled scrape failed for '%s': %s", url, exc)
             fail += 1
 
-    log.info("Scheduled scrape complete: %d succeeded, %d failed", success, fail)
+    log.info(
+        "Scheduled scrape complete: %d succeeded, %d failed, %d ignored titles, %d blocked domains",
+        success, fail, total_ignored, total_blocked,
+    )
 
 
 def start_scheduler() -> None:

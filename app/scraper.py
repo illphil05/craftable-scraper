@@ -657,6 +657,7 @@ async def _scrape_attempt(
         "adapter_family": adapter.manifest.family,
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": len(jobs),
+        "ignored_count": ignored_count,
         "error": None,
         "error_code": soft_error_code,
         "extraction_attempts": [],

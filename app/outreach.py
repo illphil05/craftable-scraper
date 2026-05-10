@@ -9,12 +9,56 @@ Environment variables (read at call time):
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 
 from app.logging_config import get_logger
 
 log = get_logger("outreach")
+
+# Config cache — refreshed at most every 5 minutes
+_config_cache: dict | None = None
+_config_cached_at: float = 0.0
+_CONFIG_MAX_AGE = 300.0  # seconds
+
+
+async def fetch_outreach_config() -> dict:
+    """Pull ignored title patterns + blocked domains from outreach.
+
+    Returns last known config on failure. Never raises.
+    """
+    global _config_cache, _config_cached_at
+
+    if _config_cache is not None and (time.monotonic() - _config_cached_at) < _CONFIG_MAX_AGE:
+        return _config_cache
+
+    import_url = os.environ.get("OUTREACH_IMPORT_URL", "").strip()
+    api_key = (os.environ.get("OUTREACH_API_KEY") or os.environ.get("SCRAPER_API_KEY", "")).strip()
+
+    if not import_url or not api_key:
+        return _config_cache or {}
+
+    config_url = import_url.rstrip("/").removesuffix("/import") + "/config"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(config_url, headers={"X-API-Key": api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            _config_cache = data
+            _config_cached_at = time.monotonic()
+            log.debug(
+                "Fetched outreach config: %d ignored patterns, %d blocked domains",
+                len(data.get("ignored_title_patterns") or []),
+                len(data.get("blocked_domains") or []),
+            )
+            return data
+        log.warning("Outreach config fetch returned HTTP %d — using last known config", resp.status_code)
+    except Exception as exc:
+        log.warning("Outreach config fetch failed: %s — using last known config", exc)
+
+    return _config_cache or {}
 
 
 def env_truthy(name: str) -> bool:
@@ -33,7 +77,14 @@ def outreach_config_status() -> dict:
     }
 
 
-def build_outreach_import_payload(company: dict, careers_url: str, jobs: list[dict]) -> dict:
+def build_outreach_import_payload(
+    company: dict,
+    careers_url: str,
+    jobs: list[dict],
+    *,
+    ignored_count: int = 0,
+    blocked_domain_count: int = 0,
+) -> dict:
     payload_jobs = []
     for job in jobs:
         payload_jobs.append({
@@ -51,6 +102,8 @@ def build_outreach_import_payload(company: dict, careers_url: str, jobs: list[di
         "search_term": "scheduled_careers_sweep",
         "region": company.get("region") or "",
         "careers_url": careers_url,
+        "ignored_count": ignored_count,
+        "blocked_domain_count": blocked_domain_count,
     }
 
 
