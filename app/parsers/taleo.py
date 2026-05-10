@@ -33,7 +33,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
             continue
         job_url = urljoin(base, href)
         loc_m = _LOC_RE.search(row)
-        location = _TEXT_RE.sub("", loc_m.group(1)).strip() or None if loc_m else None
+        location = (_TEXT_RE.sub("", loc_m.group(1)).strip() or None) if loc_m else None
         jobs.append({
             "title": title,
             "company_name": company_name or "",

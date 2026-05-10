@@ -30,9 +30,11 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
     except (json.JSONDecodeError, KeyError, TypeError):
         return []
 
-    # parse org slug from url: jobs.ashbyhq.com/{org}/...
-    parts = _up(url).path.strip("/").split("/")
-    org = parts[0] if parts else ""
+    # parse org slug from url: jobs.ashbyhq.com/{org}/... or custom domain root
+    parsed_url = _up(url)
+    origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    parts = parsed_url.path.strip("/").split("/")
+    org = parts[0] if parts and parts[0] else ""
 
     jobs = []
     for p in postings:
@@ -40,7 +42,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         if not title:
             continue
         job_id = p.get("id") or ""
-        job_url = f"https://jobs.ashbyhq.com/{org}/{job_id}" if org and job_id else url
+        job_url = f"{origin}/{org}/{job_id}" if org and job_id else url
         jobs.append({
             "title": title,
             "company_name": company_name or "",

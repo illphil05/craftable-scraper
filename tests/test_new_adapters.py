@@ -101,7 +101,12 @@ def test_workable_empty_html_returns_empty():
 
 def test_workable_url_falls_back_to_page_url_when_no_href():
     from app.parsers.workable import parse
-    html = '<html><body><h3 class="job-title">Cook</h3><span class="location">Austin, TX</span></body></html>'
+    html = (
+        '<html><body>'
+        '<div data-ui="job-summary"><h3 class="job-title">Cook</h3>'
+        '<span class="location">Austin, TX</span></div>'
+        '</body></html>'
+    )
     jobs = parse(html, WORKABLE_URL)
     assert len(jobs) == 1
     assert jobs[0]["url"] == WORKABLE_URL
