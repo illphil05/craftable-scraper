@@ -39,7 +39,10 @@ async def fetch_outreach_config() -> dict:
     if not import_url or not api_key:
         return _config_cache or {}
 
-    config_url = import_url.rstrip("/").removesuffix("/import") + "/config"
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(import_url)
+    config_path = parsed.path.rstrip("/").removesuffix("/import") + "/config"
+    config_url = urlunparse(parsed._replace(path=config_path, query="", fragment=""))
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
