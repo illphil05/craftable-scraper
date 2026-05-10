@@ -317,6 +317,87 @@ async def _api_first_attempt(
     }
 
 
+# ── Scrape quality scoring ────────────────────────────────────────────────────
+
+_ERROR_PENALTIES: dict[str, float] = {
+    EC_URL_NOT_FOUND:  0.70,
+    EC_IP_BLOCKED:     0.50,
+    EC_CAPTCHA:        0.40,
+    EC_TIMEOUT:        0.30,
+    EC_NETWORK_ERROR:  0.30,
+    EC_PARSE_FAILURE:  0.25,
+}
+
+_FALLBACK_PENALTIES = {0: 0.0, 1: 0.0, 2: 0.05, 3: 0.10}
+
+
+def _compute_scrape_quality(result: dict, adapter) -> dict:
+    """Return a normalized quality dict for a scrape result.
+
+    Score is 0–1; grade is 'high' (≥0.75), 'medium' (≥0.45), or 'low'.
+    Lets consumers distinguish '0 jobs = no openings' (high score, no error)
+    from '0 jobs = parse failed' (lower score, error_code set).
+    """
+    jobs = result.get("jobs") or []
+    jobs_count = result.get("jobs_count", len(jobs))
+    method = result.get("method", "")
+    error_code = result.get("error_code")
+    attempts = result.get("extraction_attempts") or []
+    listing_url = result.get("url", "")
+
+    # Adapter confidence — URL-only proxy at this point (HTML was consumed during parse)
+    adapter_confidence = round(adapter.match_confidence(listing_url), 3)
+
+    # Fallback depth: 0=api/jsonld, 1=playwright×1, 2=playwright retry or brightdata, 3=botasaurus
+    method_prefix = method.split(":")[0] if method else ""
+    if method_prefix in ("api", "jsonld"):
+        fallback_depth = 0
+    elif any("botasaurus" in (a.get("method") or "") for a in attempts):
+        fallback_depth = 3
+    elif any("brightdata" in (a.get("method") or "") for a in attempts):
+        fallback_depth = 2
+    elif sum(1 for a in attempts if "playwright" in (a.get("method") or "")) > 1:
+        fallback_depth = 2
+    else:
+        fallback_depth = 1
+
+    used_fallback = fallback_depth >= 2
+
+    # Coverage ratios
+    if jobs_count > 0:
+        desc_coverage = round(
+            sum(1 for j in jobs if j.get("description") or j.get("snippet")) / jobs_count, 3
+        )
+        url_coverage = round(
+            sum(1 for j in jobs if j.get("url") and j.get("url") != listing_url) / jobs_count, 3
+        )
+    else:
+        desc_coverage = 0.0
+        url_coverage = 0.0
+
+    score = adapter_confidence
+    score -= _ERROR_PENALTIES.get(error_code, 0.0)
+    score -= _FALLBACK_PENALTIES.get(fallback_depth, 0.10)
+    score = round(max(0.0, min(1.0, score)), 3)
+
+    grade = "high" if score >= 0.75 else ("medium" if score >= 0.45 else "low")
+
+    return {
+        "score": score,
+        "grade": grade,
+        "signals": {
+            "jobs_found": jobs_count,
+            "adapter_confidence": adapter_confidence,
+            "used_fallback": used_fallback,
+            "fallback_depth": fallback_depth,
+            "error_code": error_code,
+            "parse_method": method,
+            "description_coverage": desc_coverage,
+            "url_coverage": url_coverage,
+        },
+    }
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 
@@ -339,6 +420,29 @@ async def scrape_url(
       4. Botasaurus fallback (for non-API-capture adapters)
     """
     adapter = get_adapter(url)
+    result = await _scrape_url(
+        url, company_name, timeout,
+        adapter=adapter, debug=debug, deep=deep,
+        request_id=request_id, ignored_title_patterns=ignored_title_patterns,
+    )
+    quality = _compute_scrape_quality(result, adapter)
+    result["scrape_quality"] = quality
+    result.setdefault("artifact_refs", {})["scrape_quality"] = quality
+    return result
+
+
+async def _scrape_url(
+    url: str,
+    company_name: str | None = None,
+    timeout: int = 30_000,
+    *,
+    adapter,
+    debug: bool = False,
+    deep: bool = False,
+    request_id: str = "",
+    ignored_title_patterns: list[dict] | None = None,
+) -> dict:
+    """Internal scrape implementation — called by scrape_url() which attaches quality."""
 
     blocked, cb_ec = _cb_check(url)
     if blocked:
