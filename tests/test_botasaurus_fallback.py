@@ -2,14 +2,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.site_adapters.base import SiteAdapter, SiteManifest
 
-class _FakeAdapter:
-    class manifest:
-        family = "greenhouse"
-        variant = "base"
 
-    @staticmethod
-    def parse_jobs(html, url, company_name=None, *, match_confidence=1.0):
+class _FakeAdapter(SiteAdapter):
+    manifest = SiteManifest(
+        family="greenhouse",
+        variant="base",
+        url_patterns=("greenhouse.io",),
+    )
+
+    def parse_jobs(self, html, url, company_name=None, *, match_confidence=1.0):
         if "<job>" in html:
             return [{"title": "Chef", "company_name": company_name or "Acme"}]
         return []
@@ -60,6 +63,23 @@ async def test_botasaurus_scrape_driver_error_raises():
                 company_name="Acme",
                 request_id="test-3",
             )
+
+
+@pytest.mark.asyncio
+async def test_api_first_falls_through_for_adapter_without_fetch_api_jobs():
+    """Adapter that omits fetch_api_jobs entirely must not raise — getattr guard covers it."""
+    from app.scraper import _api_first_attempt
+
+    class _LegacyAdapter:
+        """Simulates a third-party adapter that predates SiteAdapter and omits fetch_api_jobs."""
+        class manifest:
+            family = "legacy"
+
+        def parse_jobs(self, html, url, company_name=None, *, match_confidence=1.0):
+            return []
+
+    result = await _api_first_attempt("https://example.com/jobs", "Acme", _LegacyAdapter(), "req-x")
+    assert result is None
 
 
 @pytest.mark.asyncio

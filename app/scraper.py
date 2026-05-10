@@ -290,7 +290,13 @@ async def _api_first_attempt(
     request_id: str,
 ) -> dict | None:
     """Try fetch_api_jobs(); return a result dict or None to fall through."""
-    jobs = await adapter.fetch_api_jobs(url, company_name, request_id)
+    # SiteAdapter defines fetch_api_jobs() returning None by default (opt-in).
+    # getattr guard protects against legacy or third-party adapters that predate
+    # the API-first pipeline and omit the method entirely.
+    fetcher = getattr(adapter, "fetch_api_jobs", None)
+    if not callable(fetcher):
+        return None
+    jobs = await fetcher(url, company_name, request_id)
     if jobs is None:
         return None
 
