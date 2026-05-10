@@ -309,8 +309,8 @@ async def _api_first_attempt(
         "adapter_family": adapter.manifest.family,
         "adapter_variant": "api",
         "jobs_count": len(jobs),
-        "error": None if jobs else "API returned zero jobs",
-        "error_code": None if jobs else EC_PARSE_FAILURE,
+        "error": None,
+        "error_code": None,
         "extraction_attempts": [
             {"method": f"api:{adapter.manifest.family}", "jobs": len(jobs)},
         ],
@@ -337,6 +337,9 @@ def _compute_scrape_quality(result: dict, adapter) -> dict:
     Score is 0–1; grade is 'high' (≥0.75), 'medium' (≥0.45), or 'low'.
     Lets consumers distinguish '0 jobs = no openings' (high score, no error)
     from '0 jobs = parse failed' (lower score, error_code set).
+
+    Base score blends adapter_confidence with 0.5 so that generic/unknown
+    adapters (confidence ~0.01) land at 'medium' on success rather than 'low'.
     """
     jobs = result.get("jobs") or []
     jobs_count = result.get("jobs_count", len(jobs))
@@ -345,37 +348,42 @@ def _compute_scrape_quality(result: dict, adapter) -> dict:
     attempts = result.get("extraction_attempts") or []
     listing_url = result.get("url", "")
 
-    # Adapter confidence — URL-only proxy at this point (HTML was consumed during parse)
+    # Adapter confidence — URL-only proxy (HTML was consumed during parse)
     adapter_confidence = round(adapter.match_confidence(listing_url), 3)
 
-    # Fallback depth: 0=api/jsonld, 1=playwright×1, 2=playwright retry or brightdata, 3=botasaurus
+    # Fallback depth — check method_prefix first, then scan attempts list.
+    # Botasaurus and brightdata checked before playwright-retry to avoid ties.
     method_prefix = method.split(":")[0] if method else ""
+    attempt_methods = [a.get("method") or "" for a in attempts]
     if method_prefix in ("api", "jsonld"):
         fallback_depth = 0
-    elif any("botasaurus" in (a.get("method") or "") for a in attempts):
+    elif any("botasaurus" in m for m in attempt_methods):
         fallback_depth = 3
-    elif any("brightdata" in (a.get("method") or "") for a in attempts):
+    elif any("brightdata" in m for m in attempt_methods):
         fallback_depth = 2
-    elif sum(1 for a in attempts if "playwright" in (a.get("method") or "")) > 1:
+    elif sum(1 for m in attempt_methods if "playwright" in m) > 1:
         fallback_depth = 2
     else:
         fallback_depth = 1
 
     used_fallback = fallback_depth >= 2
 
-    # Coverage ratios
-    if jobs_count > 0:
+    # Coverage ratios — use len(jobs) not jobs_count; jobs may be [] if stripped
+    n = len(jobs)
+    if n > 0:
         desc_coverage = round(
-            sum(1 for j in jobs if j.get("description") or j.get("snippet")) / jobs_count, 3
+            sum(1 for j in jobs if j.get("description") or j.get("snippet")) / n, 3
         )
         url_coverage = round(
-            sum(1 for j in jobs if j.get("url") and j.get("url") != listing_url) / jobs_count, 3
+            sum(1 for j in jobs if j.get("url") and j.get("url") != listing_url) / n, 3
         )
     else:
         desc_coverage = 0.0
         url_coverage = 0.0
 
-    score = adapter_confidence
+    # Blend confidence with 0.5 neutral so unknown adapters score 'medium' on
+    # success rather than 'low' (generic adapter confidence is ~0.01).
+    score = 0.5 + 0.5 * adapter_confidence
     score -= _ERROR_PENALTIES.get(error_code, 0.0)
     score -= _FALLBACK_PENALTIES.get(fallback_depth, 0.10)
     score = round(max(0.0, min(1.0, score)), 3)

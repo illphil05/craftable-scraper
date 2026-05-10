@@ -268,7 +268,7 @@ async def save_scrape(body: SaveScrapeRequest):
 
     artifact_refs = dict(body.artifact_refs)
     if body.scrape_quality:
-        artifact_refs.setdefault("scrape_quality", body.scrape_quality)
+        artifact_refs["scrape_quality"] = body.scrape_quality
 
     scrape_id = await db.save_scrape(
         company_id=company_id,
