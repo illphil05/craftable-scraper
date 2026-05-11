@@ -237,6 +237,21 @@ async def outreach_status():
     return outreach_config_status()
 
 
+@router.get("/scrape-health")
+async def scrape_health():
+    return await db.get_scrape_health()
+
+
+@router.get("/adapter-stats")
+async def adapter_stats():
+    return await db.get_adapter_stats()
+
+
+@router.get("/failure-trends")
+async def failure_trends(days: int = 7):
+    return await db.get_failure_trends(days=days)
+
+
 # ── Save scrape results to DB ─────────────────────────────────────────────────
 
 @router.post("/save-scrape")

@@ -1115,6 +1115,102 @@ async def get_stats() -> dict:
     }
 
 
+# ── Observability ─────────────────────────────────────────────────────────────
+
+async def get_scrape_health() -> dict:
+    """Aggregate success/failure metrics for the last 24 h.
+
+    status: 'healthy' (≥90% success), 'degraded' (70–89%), or 'unhealthy'.
+    A database with zero recent scrapes is also reported as 'unhealthy'.
+    """
+    db = await get_db()
+    async with db.execute(
+        """SELECT
+             COUNT(*) as total,
+             SUM(CASE WHEN error IS NULL AND error_code IS NULL THEN 1 ELSE 0 END) as successes,
+             AVG(jobs_found) as avg_jobs,
+             MAX(created_at) as last_scrape_at
+           FROM scrape_history
+           WHERE created_at > datetime('now', '-1 day')"""
+    ) as cur:
+        row = dict(await cur.fetchone())
+
+    total = row["total"] or 0
+    successes = row["successes"] or 0
+    success_rate = round(successes / total, 3) if total else 0.0
+    avg_jobs = round(row["avg_jobs"] or 0.0, 1)
+
+    if total == 0 or success_rate < 0.70:
+        status = "unhealthy"
+    elif success_rate < 0.90:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "scrapes_24h": total,
+        "success_rate_24h": success_rate,
+        "error_rate_24h": round(1.0 - success_rate, 3),
+        "avg_jobs_24h": avg_jobs,
+        "last_scrape_at": row["last_scrape_at"],
+    }
+
+
+async def get_adapter_stats() -> dict:
+    """Per-adapter breakdown: counts, success rate, avg jobs, avg elapsed.
+
+    Useful for seeing Bright Data / Botasaurus cost exposure at a glance.
+    """
+    db = await get_db()
+    async with db.execute(
+        """SELECT
+             COALESCE(adapter_family, 'unknown') as adapter_family,
+             COALESCE(adapter_variant, 'unknown') as adapter_variant,
+             COUNT(*) as total,
+             SUM(CASE WHEN error IS NULL AND error_code IS NULL THEN 1 ELSE 0 END) as successes,
+             AVG(jobs_found) as avg_jobs,
+             AVG(elapsed_ms) as avg_elapsed_ms
+           FROM scrape_history
+           GROUP BY adapter_family, adapter_variant
+           ORDER BY total DESC"""
+    ) as cur:
+        rows = [dict(r) for r in await cur.fetchall()]
+
+    for r in rows:
+        total = r["total"] or 0
+        r["success_rate"] = round((r["successes"] or 0) / total, 3) if total else 0.0
+        r["avg_jobs"] = round(r["avg_jobs"] or 0.0, 1)
+        r["avg_elapsed_ms"] = round(r["avg_elapsed_ms"] or 0.0)
+        del r["successes"]
+
+    return {"adapters": rows}
+
+
+async def get_failure_trends(days: int = 7) -> dict:
+    """Error code counts bucketed by day for the last N days.
+
+    Lets operators spot a sudden spike in ip_blocked or captcha_detected,
+    which signals Bright Data credit burn or a site blocking change.
+    """
+    db = await get_db()
+    async with db.execute(
+        """SELECT
+             date(created_at) as date,
+             COALESCE(error_code, 'none') as error_code,
+             COUNT(*) as count
+           FROM scrape_history
+           WHERE created_at > datetime('now', ? || ' days')
+             AND (error IS NOT NULL OR error_code IS NOT NULL)
+           GROUP BY date(created_at), error_code
+           ORDER BY date DESC, count DESC""",
+        (f"-{days}",),
+    ) as cur:
+        trends = [dict(r) for r in await cur.fetchall()]
+
+    return {"days": days, "trends": trends}
+
+
 # ── Enrichment queue ──────────────────────────────────────────────────────────
 
 async def get_enrichment_queue(limit: int = 20) -> list[dict]:
