@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app import db
@@ -235,6 +235,21 @@ async def recent_scrapes(limit: int = 20):
 async def outreach_status():
     """Return outreach push configuration flags — no secret values exposed."""
     return outreach_config_status()
+
+
+@router.get("/scrape-health")
+async def scrape_health():
+    return await db.get_scrape_health()
+
+
+@router.get("/adapter-stats")
+async def adapter_stats():
+    return await db.get_adapter_stats()
+
+
+@router.get("/failure-trends")
+async def failure_trends(days: int = Query(default=7, ge=1, le=90)):
+    return await db.get_failure_trends(days=days)
 
 
 # ── Save scrape results to DB ─────────────────────────────────────────────────
