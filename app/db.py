@@ -1187,7 +1187,7 @@ async def get_adapter_stats() -> dict:
     return {"adapters": rows}
 
 
-async def get_failure_trends(days: int = 7) -> dict:
+async def get_failure_trends(days: int) -> dict:
     """Error code counts bucketed by day for the last N days.
 
     Lets operators spot a sudden spike in ip_blocked or captcha_detected,

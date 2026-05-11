@@ -154,7 +154,7 @@ async def test_adapter_stats_sorted_by_total_desc():
 @pytest.mark.asyncio
 async def test_failure_trends_empty_when_no_errors():
     await _insert_scrape()  # success — should not appear
-    result = await db.get_failure_trends()
+    result = await db.get_failure_trends(days=7)
     assert result["days"] == 7
     assert result["trends"] == []
 
@@ -164,7 +164,7 @@ async def test_failure_trends_counts_error_codes():
     await _insert_scrape(error="blocked", error_code="ip_blocked")
     await _insert_scrape(error="blocked", error_code="ip_blocked")
     await _insert_scrape(error="fail", error_code="parse_failure")
-    result = await db.get_failure_trends()
+    result = await db.get_failure_trends(days=7)
     by_code = {r["error_code"]: r["count"] for r in result["trends"]}
     assert by_code["ip_blocked"] == 2
     assert by_code["parse_failure"] == 1
