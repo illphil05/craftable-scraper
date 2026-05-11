@@ -30,6 +30,28 @@ class SiteAdapter:
     detail_timeout_ms = 15_000
     detail_limit = 50
 
+    def api_url_for(self, listing_url: str) -> str | None:
+        """Return the ATS REST API URL for this listing URL, or None.
+
+        Adapters with a known public JSON API override this to expose the
+        endpoint URL so scraper.py can proxy the call through BrightData
+        when the direct request is blocked.
+        """
+        return None
+
+    def normalize_api_response(
+        self,
+        data: dict | list,
+        company_name: str | None,
+    ) -> list[dict[str, Any]]:
+        """Parse an already-fetched ATS API JSON response into job dicts.
+
+        Adapters that override api_url_for() must also override this so
+        the BrightData proxy path can normalize the response the same way
+        fetch_api_jobs() does.
+        """
+        return []
+
     async def fetch_api_jobs(
         self,
         url: str,
