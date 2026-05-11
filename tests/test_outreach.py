@@ -78,6 +78,57 @@ def test_payload_empty_region():
     assert p["region"] == ""
 
 
+# ── Source diagnostics and quality metadata (Phase 5) ────────────────────────
+
+def test_source_diagnostics_included_when_provided():
+    p = build_outreach_import_payload(
+        _company(), "https://acme.com/careers", _jobs(),
+        adapter_family="greenhouse",
+        adapter_variant="api",
+        parse_method="api:greenhouse",
+    )
+    assert p["adapter_family"] == "greenhouse"
+    assert p["adapter_variant"] == "api"
+    assert p["parse_method"] == "api:greenhouse"
+
+
+def test_scrape_quality_included_when_provided():
+    quality = {"score": 0.975, "grade": "high", "signals": {"jobs_found": 1}}
+    p = build_outreach_import_payload(
+        _company(), "https://acme.com/careers", _jobs(),
+        scrape_quality=quality,
+    )
+    assert p["scrape_quality"] == quality
+
+
+def test_source_diagnostics_omitted_when_not_provided():
+    p = _payload()
+    assert "adapter_family" not in p
+    assert "adapter_variant" not in p
+    assert "parse_method" not in p
+    assert "scrape_quality" not in p
+
+
+def test_existing_top_level_keys_unchanged():
+    """Phase 5 additions must not break existing key contract."""
+    p = build_outreach_import_payload(
+        _company(), "https://acme.com/careers", _jobs(),
+        adapter_family="greenhouse",
+        scrape_quality={"score": 0.9, "grade": "high", "signals": {}},
+    )
+    assert p["source"] == "craftable_scraper"
+    assert p["search_term"] == "scheduled_careers_sweep"
+    assert p["company_id"] == "c1"
+    assert p["careers_url"] == "https://acme.com/careers"
+
+
+def test_requisition_id_flows_through_job_spread():
+    """requisition_id on the job dict reaches the payload via **job spread."""
+    jobs = [{"title": "Chef", "url": "https://acme.com/1", "requisition_id": "REQ-42"}]
+    p = build_outreach_import_payload(_company(), "https://acme.com/careers", jobs)
+    assert p["jobs"][0]["requisition_id"] == "REQ-42"
+
+
 # ── Gate / env behaviour ──────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
