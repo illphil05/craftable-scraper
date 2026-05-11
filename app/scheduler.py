@@ -91,13 +91,15 @@ async def _run_scheduled_scrape() -> None:
             run_ignored = res.get("ignored_count", 0)
             total_ignored += run_ignored
             if res["jobs"]:
-                await db.save_jobs(company["id"], scrape_id, res["jobs"])
-                payload = build_outreach_import_payload(
-                    company, url, res["jobs"],
-                    ignored_count=run_ignored,
-                    blocked_domain_count=0,
-                )
-                await push_to_outreach(payload)
+                lifecycle = await db.save_jobs(company["id"], scrape_id, res["jobs"])
+                outreach_jobs = lifecycle["new"] + lifecycle["changed"]
+                if outreach_jobs:
+                    payload = build_outreach_import_payload(
+                        company, url, outreach_jobs,
+                        ignored_count=run_ignored,
+                        blocked_domain_count=0,
+                    )
+                    await push_to_outreach(payload)
             success += 1
         except Exception as exc:
             log.error("Scheduled scrape failed for '%s': %s", url, exc)

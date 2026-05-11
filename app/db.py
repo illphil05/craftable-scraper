@@ -371,6 +371,48 @@ def _job_content_hash(company_id: str, title: str, location: str | None) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
+_ATS_HOSTED_RE = re.compile(
+    r"(?:boards\.greenhouse\.io|jobs\.lever\.co|jobs\.ashbyhq\.com"
+    r"|apply\.workable\.com|jobs\.jobvite\.com|recruiting\.paylocity\.com"
+    r"|app\.smartrecruiters\.com|jobs\.smartrecruiters\.com)",
+    re.IGNORECASE,
+)
+
+
+def _extract_ats_job_id(url: str) -> str | None:
+    """Return the terminal job ID from a known ATS URL, or None.
+
+    Used as the third level of the identity chain (after requisition_id and
+    canonical URL) so that URL casing or param changes don't create duplicates.
+    Only fires for known ATS hostnames to avoid false matches on company sites.
+    """
+    if not url or not _ATS_HOSTED_RE.search(url):
+        return None
+    path = urlparse(url).path.rstrip("/")
+    segment = path.rsplit("/", 1)[-1] if "/" in path else ""
+    return segment if len(segment) >= 4 else None
+
+
+# Fields compared when detecting whether an existing job changed this run.
+_CHANGE_TRACKED_FIELDS = (
+    "title", "location", "department", "employment_type",
+    "salary_text", "salary_min", "salary_max", "url",
+)
+
+
+def _compute_changed_fields(existing: dict, new_payload: dict) -> list[str]:
+    """Return names of fields whose value changed between existing DB row and
+    new incoming payload.  Only compares _CHANGE_TRACKED_FIELDS."""
+    changed = []
+    for field in _CHANGE_TRACKED_FIELDS:
+        old_val = existing.get(field)
+        new_val = new_payload.get(field)
+        # Treat None and "" as equivalent to avoid spurious noise
+        if (old_val or None) != (new_val or None):
+            changed.append(field)
+    return changed
+
+
 # ── Company CRUD ──────────────────────────────────────────────────────────────
 
 async def create_company(
@@ -673,11 +715,17 @@ _JOB_UPDATE_SQL = _job_update_sql()
 _JOB_INSERT_SQL = _job_insert_sql()
 
 
-async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> None:
+async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> dict:
+    """Upsert jobs and return a lifecycle dict for the caller.
+
+    Returns {"new": [job_dicts], "changed": [job_dicts], "closed": [job_ids]}
+    so callers can push only new/changed jobs to Outreach instead of all jobs.
+    """
     db = await get_db()
     now = _now()
 
-    # Index existing active jobs by URL then by content_hash (for URL-less jobs)
+    # Load existing active jobs and build four indexes for the identity chain:
+    # 1. requisition_id  2. canonical URL  3. ATS job ID  4. content_hash
     async with db.execute(
         "SELECT * FROM jobs WHERE company_id = ? AND is_active = 1", (company_id,)
     ) as cur:
@@ -685,17 +733,29 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
 
     existing_by_url: dict[str, dict] = {}
     existing_by_hash: dict[str, dict] = {}
+    existing_by_req_id: dict[str, dict] = {}
+    existing_by_ats_id: dict[str, dict] = {}
     for row in existing_rows:
         d = dict(row)
         if d.get("url"):
             existing_by_url[d["url"]] = d
         if d.get("content_hash"):
             existing_by_hash[d["content_hash"]] = d
+        if d.get("requisition_id"):
+            existing_by_req_id[d["requisition_id"]] = d
+        ats_id = _extract_ats_job_id(d.get("url") or "")
+        if ats_id:
+            existing_by_ats_id[ats_id] = d
 
     seen_urls: set[str | None] = set()
     seen_hashes: set[str] = set()
+    new_jobs: list[dict] = []
+    changed_jobs: list[dict] = []
+
     for j in jobs_data:
         job_url = j.get("url")
+        req_id = j.get("requisition_id")
+        ats_id = _extract_ats_job_id(job_url or "")
         content_hash = _job_content_hash(company_id, j.get("title", ""), j.get("location"))
         field_evidence = j.get("_field_evidence", [])
         job_payload = _build_job_payload(j, company_id=company_id, scrape_id=scrape_id, now=now, content_hash=content_hash)
@@ -703,20 +763,30 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
         seen_urls.add(job_url)
         seen_hashes.add(content_hash)
 
+        # Priority chain: requisition_id → URL → ATS job ID → content_hash
         existing = None
-        if job_url and job_url in existing_by_url:
+        if req_id and req_id in existing_by_req_id:
+            existing = existing_by_req_id[req_id]
+        elif job_url and job_url in existing_by_url:
             existing = existing_by_url[job_url]
+        elif ats_id and ats_id in existing_by_ats_id:
+            existing = existing_by_ats_id[ats_id]
         elif content_hash in existing_by_hash:
             existing = existing_by_hash[content_hash]
 
         if existing:
+            changed_fields = _compute_changed_fields(existing, job_payload)
             existing_version = existing.get("job_version")
             next_version = int(existing_version) + 1 if existing_version is not None else 1
             await db.execute(_JOB_UPDATE_SQL, {**job_payload, "job_version": next_version, "id": existing["id"]})
             job_id = existing["id"]
+            if changed_fields:
+                changed_jobs.append(j)
         else:
             job_id = _uuid()
             await db.execute(_JOB_INSERT_SQL, {**job_payload, "id": job_id})
+            new_jobs.append(j)
+
         await db.execute("DELETE FROM job_field_evidence WHERE job_id = ?", (job_id,))
         for evidence in field_evidence:
             await db.execute(
@@ -740,14 +810,18 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> N
             )
 
     # Deactivate jobs not seen in this scrape
+    closed_job_ids: list[str] = []
     for url_key, existing_job in existing_by_url.items():
         if url_key not in seen_urls:
             await db.execute("UPDATE jobs SET is_active = 0 WHERE id = ?", (existing_job["id"],))
+            closed_job_ids.append(existing_job["id"])
     for hash_key, existing_job in existing_by_hash.items():
         if hash_key not in seen_hashes and not existing_job.get("url"):
             await db.execute("UPDATE jobs SET is_active = 0 WHERE id = ?", (existing_job["id"],))
+            closed_job_ids.append(existing_job["id"])
 
     await db.commit()
+    return {"new": new_jobs, "changed": changed_jobs, "closed": closed_job_ids}
 
 
 async def list_jobs(
