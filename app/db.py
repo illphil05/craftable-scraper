@@ -1197,7 +1197,7 @@ async def get_failure_trends(days: int = 7) -> dict:
     async with db.execute(
         """SELECT
              date(created_at) as date,
-             COALESCE(error_code, 'none') as error_code,
+             COALESCE(error_code, 'unclassified') as error_code,
              COUNT(*) as count
            FROM scrape_history
            WHERE created_at > datetime('now', ? || ' days')

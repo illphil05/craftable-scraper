@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app import db
@@ -248,7 +248,7 @@ async def adapter_stats():
 
 
 @router.get("/failure-trends")
-async def failure_trends(days: int = 7):
+async def failure_trends(days: int = Query(default=7, ge=1, le=90)):
     return await db.get_failure_trends(days=days)
 
 
