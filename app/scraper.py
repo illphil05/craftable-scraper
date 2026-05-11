@@ -21,6 +21,7 @@ Improvements over v1:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
 import re
@@ -206,6 +207,55 @@ def _is_ignored_title(title: str, patterns: list[dict]) -> bool:
 
 
 # ── Bright Data fallback ──────────────────────────────────────────────────────
+
+async def _brightdata_api_fallback(
+    url: str,
+    company_name: str | None,
+    adapter,
+    request_id: str,
+) -> dict | None:
+    """Proxy the adapter's ATS REST API call through Bright Data Web Unlocker.
+
+    Called when _api_first_attempt() returned None (direct API unreachable).
+    Returns a scrape result dict on success, or None if not applicable.
+    """
+    from app import brightdata as bd
+
+    if not bd.is_configured():
+        return None
+    api_url = adapter.api_url_for(url)
+    if not api_url:
+        return None
+
+    log.debug("BrightData API proxy: %s [%s]", api_url, request_id)
+    try:
+        result = await bd.unlock_url(api_url)
+        body = result["body"]
+        data = body if isinstance(body, (dict, list)) else json.loads(body)
+    except Exception as exc:
+        log.warning("BrightData API proxy failed for %s: %s [%s]", api_url, exc, request_id)
+        return None
+
+    jobs = adapter.normalize_api_response(data, company_name)
+    log.info("BrightData API proxy: %d jobs from %s [%s]", len(jobs), api_url, request_id)
+
+    family = adapter.manifest.family
+    return {
+        "jobs": jobs,
+        "company_name": jobs[0].get("company_name", company_name or "") if jobs else (company_name or ""),
+        "url": url,
+        "method": f"brightdata:api:{family}",
+        "adapter_family": family,
+        "adapter_variant": "brightdata_api",
+        "jobs_count": len(jobs),
+        # Treat zero jobs as a trusted "no openings" signal, same as _api_first_attempt.
+        "error": None,
+        "error_code": None,
+        "extraction_attempts": [
+            {"method": f"brightdata:api:{family}", "api_url": api_url, "jobs": len(jobs)},
+        ],
+    }
+
 
 async def _brightdata_fallback(
     url: str,
@@ -511,6 +561,11 @@ async def _scrape_url(
     api_result = await _api_first_attempt(url, company_name, adapter, request_id)
     if api_result is not None:
         return api_result
+
+    # ── Step 1b: BrightData API proxy (when direct API was blocked) ───────────
+    bd_api_result = await _brightdata_api_fallback(url, company_name, adapter, request_id)
+    if bd_api_result is not None:
+        return bd_api_result
 
     # ── Step 2: Playwright with retries ───────────────────────────────────────
     parser_name = adapter.manifest.family

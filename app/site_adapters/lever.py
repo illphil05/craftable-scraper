@@ -68,20 +68,28 @@ class LeverAdapter(SiteAdapter):
     )
     parser = staticmethod(parse)
 
+    def api_url_for(self, listing_url: str) -> str | None:
+        company = _parse_company(listing_url)
+        return f"https://api.lever.co/v0/postings/{company}?mode=json" if company else None
+
+    def normalize_api_response(self, data, company_name):
+        if not isinstance(data, list):
+            log.warning("Lever API: unexpected response shape — %s", type(data).__name__)
+            return []
+        return _normalize_lever_jobs(data, company_name)
+
     async def fetch_api_jobs(
         self,
         url: str,
         company_name: str | None,
         request_id: str,
     ) -> list[dict[str, Any]] | None:
-        company = _parse_company(url)
-        if not company:
+        api_url = self.api_url_for(url)
+        if not api_url:
             log.debug("Could not parse Lever company from %s [%s]", url, request_id)
             return None
 
-        api_url = f"https://api.lever.co/v0/postings/{company}?mode=json"
         log.debug("Lever API fetch: %s [%s]", api_url, request_id)
-
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(api_url, headers={"User-Agent": "craftable-scraper/1.0"})
@@ -93,10 +101,9 @@ class LeverAdapter(SiteAdapter):
             log.warning("Lever API error for %s: %s [%s]", url, exc, request_id)
             return None
 
-        if not isinstance(data, list):
+        jobs = self.normalize_api_response(data, company_name)
+        if not jobs and not isinstance(data, list):
             log.warning("Lever API returned unexpected shape for %s [%s]", url, request_id)
             return None
-
-        jobs = _normalize_lever_jobs(data, company_name)
-        log.info("Lever API: %d jobs from %s [%s]", len(jobs), company, request_id)
+        log.info("Lever API: %d jobs from %s [%s]", len(jobs), api_url, request_id)
         return jobs

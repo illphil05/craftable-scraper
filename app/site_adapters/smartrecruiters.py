@@ -77,20 +77,28 @@ class SmartRecruitersAdapter(SiteAdapter):
     )
     parser = staticmethod(parse)
 
+    def api_url_for(self, listing_url: str) -> str | None:
+        company = _parse_company(listing_url)
+        return f"https://api.smartrecruiters.com/v1/companies/{company}/postings" if company else None
+
+    def normalize_api_response(self, data, company_name):
+        if not isinstance(data, dict) or "content" not in data:
+            log.warning("SmartRecruiters API: unexpected response shape — %s", type(data).__name__)
+            return []
+        return _normalize_sr_jobs(data, company_name)
+
     async def fetch_api_jobs(
         self,
         url: str,
         company_name: str | None,
         request_id: str,
     ) -> list[dict[str, Any]] | None:
-        company = _parse_company(url)
-        if not company:
+        api_url = self.api_url_for(url)
+        if not api_url:
             log.debug("Could not parse SmartRecruiters company from %s [%s]", url, request_id)
             return None
 
-        api_url = f"https://api.smartrecruiters.com/v1/companies/{company}/postings"
         log.debug("SmartRecruiters API fetch: %s [%s]", api_url, request_id)
-
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(api_url, headers={"User-Agent": "craftable-scraper/1.0"})
@@ -102,6 +110,6 @@ class SmartRecruitersAdapter(SiteAdapter):
             log.warning("SmartRecruiters API error for %s: %s [%s]", url, exc, request_id)
             return None
 
-        jobs = _normalize_sr_jobs(data, company_name)
-        log.info("SmartRecruiters API: %d jobs from %s [%s]", len(jobs), company, request_id)
+        jobs = self.normalize_api_response(data, company_name)
+        log.info("SmartRecruiters API: %d jobs from %s [%s]", len(jobs), api_url, request_id)
         return jobs

@@ -1,4 +1,5 @@
-"""Tests for the Bright Data REST client (app/brightdata.py)."""
+"""Tests for the Bright Data REST client (app/brightdata.py) and API proxy."""
+import json
 import os
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -91,3 +92,90 @@ async def test_unlock_url_uses_correct_zone(monkeypatch):
 
     assert captured_payload["zone"] == "custom_zone1"
     assert captured_payload["url"] == "https://example.com"
+
+
+# ── _brightdata_api_fallback tests ────────────────────────────────────────────
+
+from app.scraper import _brightdata_api_fallback
+
+
+class _FakeAdapter:
+    class manifest:
+        family = "greenhouse"
+        variant = "base"
+
+    def api_url_for(self, url):
+        return "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
+
+    def normalize_api_response(self, data, company_name):
+        return [{"title": j["title"], "company_name": company_name or ""} for j in data.get("jobs", [])]
+
+
+class _NoApiAdapter:
+    class manifest:
+        family = "generic"
+        variant = "base"
+
+    def api_url_for(self, url):
+        return None
+
+    def normalize_api_response(self, data, company_name):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_bd_api_fallback_skips_when_not_configured(monkeypatch):
+    monkeypatch.delenv("BRIGHTDATA_API_KEY", raising=False)
+    with patch("app.brightdata.is_configured", return_value=False):
+        result = await _brightdata_api_fallback("https://boards.greenhouse.io/acme", "Acme", _FakeAdapter(), "req1")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_bd_api_fallback_skips_when_no_api_url(monkeypatch):
+    with patch("app.brightdata.is_configured", return_value=True):
+        result = await _brightdata_api_fallback("https://example.com/jobs", "Acme", _NoApiAdapter(), "req2")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_bd_api_fallback_returns_jobs_on_success():
+    payload = {"jobs": [{"title": "Engineer"}, {"title": "Designer"}]}
+
+    with patch("app.brightdata.is_configured", return_value=True), \
+         patch("app.brightdata.unlock_url", AsyncMock(return_value={"body": json.dumps(payload)})):
+        result = await _brightdata_api_fallback(
+            "https://boards.greenhouse.io/acme", "Acme", _FakeAdapter(), "req3"
+        )
+
+    assert result is not None
+    assert result["jobs_count"] == 2
+    assert result["method"] == "brightdata:api:greenhouse"
+    assert result["adapter_variant"] == "brightdata_api"
+    assert result["error"] is None
+    assert result["error_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_bd_api_fallback_zero_jobs_sets_error_code():
+    with patch("app.brightdata.is_configured", return_value=True), \
+         patch("app.brightdata.unlock_url", AsyncMock(return_value={"body": json.dumps({"jobs": []})})):
+        result = await _brightdata_api_fallback(
+            "https://boards.greenhouse.io/acme", "Acme", _FakeAdapter(), "req4"
+        )
+
+    assert result is not None
+    assert result["jobs_count"] == 0
+    assert result["error_code"] is None
+    assert result["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_bd_api_fallback_returns_none_on_network_error():
+    with patch("app.brightdata.is_configured", return_value=True), \
+         patch("app.brightdata.unlock_url", AsyncMock(side_effect=Exception("connection timeout"))):
+        result = await _brightdata_api_fallback(
+            "https://boards.greenhouse.io/acme", "Acme", _FakeAdapter(), "req5"
+        )
+
+    assert result is None

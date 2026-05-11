@@ -74,20 +74,28 @@ class GreenhouseAdapter(SiteAdapter):
     )
     parser = staticmethod(parse)
 
+    def api_url_for(self, listing_url: str) -> str | None:
+        token = _parse_board_token(listing_url)
+        return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true" if token else None
+
+    def normalize_api_response(self, data, company_name):
+        if not isinstance(data, dict) or "jobs" not in data:
+            log.warning("Greenhouse API: unexpected response shape — %s", type(data).__name__)
+            return []
+        return _normalize_greenhouse_jobs(data, company_name)
+
     async def fetch_api_jobs(
         self,
         url: str,
         company_name: str | None,
         request_id: str,
     ) -> list[dict[str, Any]] | None:
-        board_token = _parse_board_token(url)
-        if not board_token:
+        api_url = self.api_url_for(url)
+        if not api_url:
             log.debug("Could not parse Greenhouse board token from %s [%s]", url, request_id)
             return None
 
-        api_url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true"
         log.debug("Greenhouse API fetch: %s [%s]", api_url, request_id)
-
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(api_url, headers={"User-Agent": "craftable-scraper/1.0"})
@@ -99,6 +107,6 @@ class GreenhouseAdapter(SiteAdapter):
             log.warning("Greenhouse API error for %s: %s [%s]", url, exc, request_id)
             return None
 
-        jobs = _normalize_greenhouse_jobs(data, company_name)
-        log.info("Greenhouse API: %d jobs from %s [%s]", len(jobs), board_token, request_id)
+        jobs = self.normalize_api_response(data, company_name)
+        log.info("Greenhouse API: %d jobs from %s [%s]", len(jobs), api_url, request_id)
         return jobs
