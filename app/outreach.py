@@ -87,6 +87,10 @@ def build_outreach_import_payload(
     *,
     ignored_count: int = 0,
     blocked_domain_count: int = 0,
+    adapter_family: str | None = None,
+    adapter_variant: str | None = None,
+    parse_method: str | None = None,
+    scrape_quality: dict | None = None,
 ) -> dict:
     payload_jobs = []
     for job in jobs:
@@ -98,7 +102,7 @@ def build_outreach_import_payload(
             "source_url": job.get("url"),
             "full_description": job.get("description"),
         })
-    return {
+    payload: dict = {
         "company_id": company.get("id"),
         "jobs": payload_jobs,
         "source": "craftable_scraper",
@@ -108,6 +112,16 @@ def build_outreach_import_payload(
         "ignored_count": ignored_count,
         "blocked_domain_count": blocked_domain_count,
     }
+    # Source diagnostics and quality metadata — additive, omitted when not available
+    if adapter_family:
+        payload["adapter_family"] = adapter_family
+    if adapter_variant:
+        payload["adapter_variant"] = adapter_variant
+    if parse_method:
+        payload["parse_method"] = parse_method
+    if scrape_quality:
+        payload["scrape_quality"] = scrape_quality
+    return payload
 
 
 async def push_to_outreach(payload: dict, *, enabled_env: str = "PUSH_TO_OUTREACH") -> dict:

@@ -292,7 +292,11 @@ async def save_scrape(body: SaveScrapeRequest):
             company_record = await db.get_company(company_id)
             if company_record:
                 payload = build_outreach_import_payload(
-                    company_record, body.careers_url, outreach_jobs
+                    company_record, body.careers_url, outreach_jobs,
+                    adapter_family=body.adapter_family,
+                    adapter_variant=body.adapter_variant,
+                    parse_method=body.parser_used,
+                    scrape_quality=body.scrape_quality,
                 )
                 await push_to_outreach(payload, enabled_env="PUSH_MANUAL_SAVES_TO_OUTREACH")
 

@@ -98,6 +98,10 @@ async def _run_scheduled_scrape() -> None:
                         company, url, outreach_jobs,
                         ignored_count=run_ignored,
                         blocked_domain_count=0,
+                        adapter_family=res.get("adapter_family"),
+                        adapter_variant=res.get("adapter_variant"),
+                        parse_method=res.get("method"),
+                        scrape_quality=res.get("scrape_quality"),
                     )
                     await push_to_outreach(payload)
             success += 1
