@@ -230,7 +230,8 @@ async def _brightdata_api_fallback(
     log.debug("BrightData API proxy: %s [%s]", api_url, request_id)
     try:
         result = await bd.unlock_url(api_url)
-        data = json.loads(result["body"])
+        body = result["body"]
+        data = body if isinstance(body, (dict, list)) else json.loads(body)
     except Exception as exc:
         log.warning("BrightData API proxy failed for %s: %s [%s]", api_url, exc, request_id)
         return None

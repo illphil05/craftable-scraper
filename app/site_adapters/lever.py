@@ -74,6 +74,7 @@ class LeverAdapter(SiteAdapter):
 
     def normalize_api_response(self, data, company_name):
         if not isinstance(data, list):
+            log.warning("Lever API: unexpected response shape — %s", type(data).__name__)
             return []
         return _normalize_lever_jobs(data, company_name)
 

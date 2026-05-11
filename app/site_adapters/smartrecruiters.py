@@ -82,6 +82,9 @@ class SmartRecruitersAdapter(SiteAdapter):
         return f"https://api.smartrecruiters.com/v1/companies/{company}/postings" if company else None
 
     def normalize_api_response(self, data, company_name):
+        if not isinstance(data, dict) or "content" not in data:
+            log.warning("SmartRecruiters API: unexpected response shape — %s", type(data).__name__)
+            return []
         return _normalize_sr_jobs(data, company_name)
 
     async def fetch_api_jobs(

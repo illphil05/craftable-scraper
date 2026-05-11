@@ -79,6 +79,9 @@ class GreenhouseAdapter(SiteAdapter):
         return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true" if token else None
 
     def normalize_api_response(self, data, company_name):
+        if not isinstance(data, dict) or "jobs" not in data:
+            log.warning("Greenhouse API: unexpected response shape — %s", type(data).__name__)
+            return []
         return _normalize_greenhouse_jobs(data, company_name)
 
     async def fetch_api_jobs(
