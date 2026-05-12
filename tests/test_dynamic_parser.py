@@ -111,6 +111,28 @@ def test_job_card_dom_pattern():
     assert jobs[0]["source_confidence"] == 0.70
 
 
+def test_job_card_dom_pattern_with_single_quoted_attributes():
+    html = """
+    <section>
+      <article class='opening-card'>
+        <h2 class='position-name'>Night Auditor</h2>
+        <a href='/careers/night-auditor'>View role</a>
+        <div class='job-location'>Denver, CO</div>
+      </article>
+      <article class='opening-card'>
+        <h2 class='position-name'>Banquet Captain</h2>
+        <a href='/careers/banquet-captain'>View role</a>
+        <div class='job-location'>Denver, CO</div>
+      </article>
+    </section>
+    """
+    jobs = parse_dynamic(html, "https://unknown.example/careers", "Unknown Hotel")
+    assert len(jobs) == 2
+    assert jobs[0]["url"] == "https://unknown.example/careers/night-auditor"
+    assert jobs[0]["location"] == "Denver, CO"
+    assert jobs[0]["extraction_method"] == "dynamic:job_cards"
+
+
 # ── Job-like anchors ──────────────────────────────────────────────────────────
 
 def test_job_anchors_fallback():
@@ -124,6 +146,15 @@ def test_job_anchors_fallback():
     titles = {j["title"] for j in jobs}
     assert "Marketing Manager" in titles
     assert jobs[0]["source_confidence"] == 0.50
+
+
+def test_job_anchors_fallback_with_single_quoted_href():
+    html = """
+    <a href='/positions/front-office-manager'>Front Office Manager</a>
+    <a href='/opening/revenue-analyst'>Revenue Analyst</a>
+    """
+    jobs = parse_dynamic(html, "https://example.com/careers")
+    assert {j["title"] for j in jobs} == {"Front Office Manager", "Revenue Analyst"}
 
 
 # ── Confidence filtering ──────────────────────────────────────────────────────
