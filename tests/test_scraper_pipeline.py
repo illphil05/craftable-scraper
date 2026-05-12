@@ -249,6 +249,74 @@ async def test_brightdata_not_triggered_when_not_configured(monkeypatch):
     assert bd_called == []
 
 
+async def test_generic_playwright_zero_jobs_uses_dynamic_fallback(monkeypatch):
+    """Unknown domains should run the dynamic parser over rendered Playwright HTML."""
+    adapter = _FakeAdapter("generic")
+    html = """
+    <html><body>
+      <article class="opening-card">
+        <h2 class="position-title">Rooms Controller</h2>
+        <a href="/careers/rooms-controller">Apply</a>
+        <div class="job-location">Nashville, TN</div>
+      </article>
+      <article class="opening-card">
+        <h2 class="position-title">Executive Steward</h2>
+        <a href="/careers/executive-steward">Apply</a>
+        <div class="job-location">Nashville, TN</div>
+      </article>
+    </body></html>
+    """
+
+    class _FakePW:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        @property
+        def chromium(self): return self
+        async def launch(self, **kwargs): return _FakeBrowser()
+
+    class _FakeBrowser:
+        async def new_context(self, **kwargs): return _FakeContext()
+        async def close(self): pass
+
+    class _FakeContext:
+        async def new_page(self): return _FakePage()
+
+    class _FakePage:
+        async def add_init_script(self, s): pass
+        async def goto(self, url, wait_until, timeout): pass
+        async def wait_for_selector(self, sel, timeout, state): raise RuntimeError("not found")
+        async def evaluate(self, expr): pass
+        async def wait_for_timeout(self, ms): pass
+        async def content(self): return html
+
+    monkeypatch.setattr(scraper_module, "get_adapter", lambda *a, **kw: adapter)
+    monkeypatch.setattr(scraper_module, "async_playwright", lambda: _FakePW())
+
+    import app.brightdata as bd_mod
+    monkeypatch.setattr(bd_mod, "is_configured", lambda: False)
+    monkeypatch.setattr(
+        scraper_module,
+        "botasaurus_scrape",
+        AsyncMock(side_effect=AssertionError("dynamic fallback should prevent botasaurus")),
+    )
+
+    result = await scraper_module.scrape_url(
+        "https://unknown.example/careers",
+        company_name="Unknown Hotel",
+        request_id="req-dyn-1",
+    )
+
+    assert result["jobs_count"] == 2
+    assert result["method"] == "playwright:generic:dynamic"
+    assert result["adapter_family"] == "dynamic"
+    assert result["adapter_variant"] == "fallback_parser"
+    assert {j["title"] for j in result["jobs"]} == {"Rooms Controller", "Executive Steward"}
+    assert result["jobs"][0]["source_site_family"] == "dynamic"
+    assert any(a["method"] == "dynamic:fallback_parser" for a in result["extraction_attempts"])
+    assert result["scrape_quality"]["signals"]["used_fallback"] is True
+    assert result["scrape_quality"]["signals"]["fallback_depth"] == 2
+
+
 # ── extraction_attempts ───────────────────────────────────────────────────────
 
 async def test_extraction_attempts_in_api_first_result(monkeypatch):

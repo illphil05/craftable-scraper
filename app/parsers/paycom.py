@@ -48,7 +48,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
 
         snippet_html = job.get("description_full") or job.get("description") or ""
         if snippet_html:
-            text = BeautifulSoup(snippet_html, "lxml").get_text(separator=" ", strip=True)
+            text = BeautifulSoup(snippet_html, "html.parser").get_text(separator=" ", strip=True)
             snippet = text[:500] if text else None
         else:
             snippet = None

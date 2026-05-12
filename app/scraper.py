@@ -3,15 +3,16 @@
 Strategy order per request:
   1. API-first site adapter (fetch_api_jobs)
   2. Playwright site adapter
-  3. Bright Data Web Unlocker REST fallback
-  4. Dynamic parser over unlocked HTML
-  5. Botasaurus fallback (for non-API-capture adapters)
+  3. Dynamic parser for generic/unknown Playwright HTML
+  4. Bright Data Web Unlocker REST fallback
+  5. Dynamic parser over unlocked HTML
+  6. Botasaurus fallback (for non-API-capture adapters)
 
 Improvements over v1:
  - ExtractionResult TypedDict for structured pipeline results.
  - API-first path bypasses Playwright for known ATS REST endpoints.
  - Bright Data REST fallback for blocked/unknown domains.
- - Dynamic parser for parserless job URLs.
+ - Dynamic parser for parserless job URLs and generic unknown domains.
  - extraction_attempts list for structured diagnostics.
  - Retry logic with exponential back-off.
  - asyncio.Semaphore caps concurrent browser instances.
@@ -413,6 +414,8 @@ def _compute_scrape_quality(result: dict, adapter) -> dict:
         fallback_depth = 3
     elif any("brightdata" in m for m in attempt_methods):
         fallback_depth = 2
+    elif "generic:dynamic" in method or any("dynamic:fallback_parser" in m for m in attempt_methods):
+        fallback_depth = 2
     elif sum(1 for m in attempt_methods if "playwright" in m) > 1:
         fallback_depth = 2
     else:
@@ -476,8 +479,9 @@ async def scrape_url(
     Strategy order:
       1. API-first adapter (if available)
       2. Playwright with retries
-      3. Bright Data REST fallback (if configured and warranted)
-      4. Botasaurus fallback (for non-API-capture adapters)
+      3. Dynamic parser for generic/unknown Playwright HTML
+      4. Bright Data REST fallback (if configured and warranted)
+      5. Botasaurus fallback (for non-API-capture adapters)
     """
     adapter = get_adapter(url)
     result = await _scrape_url(
@@ -769,17 +773,45 @@ async def _scrape_attempt(
             adapter = resolved_adapter
             parser_name = adapter.manifest.family
             final_html = await adapter.finalize_html(page, resolved_html, page_context, request_id)
+            match_confidence = adapter.match_confidence(
+                url,
+                html=final_html,
+                response_urls=page_context.get("captured_response_urls", []),
+            )
             jobs = adapter.parse_jobs(
                 final_html,
                 url,
                 company_name,
-                match_confidence=adapter.match_confidence(
-                    url,
-                    html=final_html,
-                    response_urls=page_context.get("captured_response_urls", []),
-                ),
+                match_confidence=match_confidence,
             )
             log.info("Parsed %d jobs from '%s' using %s [%s]", len(jobs), url, parser_name, request_id)
+
+            result_adapter_family = adapter.manifest.family
+            result_adapter_variant = adapter.manifest.variant
+            dynamic_attempts: list[dict] = []
+
+            if not jobs and adapter.manifest.family == "generic":
+                from app.parsers.dynamic import parse_dynamic
+
+                dynamic_jobs = parse_dynamic(final_html, url, company_name)
+                if dynamic_jobs:
+                    annotate_job = getattr(adapter, "annotate_job", None)
+                    if callable(annotate_job):
+                        jobs = [
+                            annotate_job(
+                                job,
+                                "list",
+                                job.get("source_confidence", match_confidence),
+                            )
+                            for job in dynamic_jobs
+                        ]
+                    else:
+                        jobs = dynamic_jobs
+                    parser_name = "generic:dynamic"
+                    result_adapter_family = "dynamic"
+                    result_adapter_variant = "fallback_parser"
+                    dynamic_attempts.append({"method": "dynamic:fallback_parser", "jobs": len(jobs)})
+                    log.info("Dynamic fallback parsed %d jobs from generic HTML for '%s' [%s]", len(jobs), url, request_id)
 
             # ── Filter ignored titles before detail fetches ─────────────────
             ignored_count = 0
@@ -823,13 +855,13 @@ async def _scrape_attempt(
         "company_name": jobs[0]["company_name"] if jobs and jobs[0].get("company_name") else (company_name or ""),
         "url": url,
         "method": f"playwright:{parser_name}",
-        "adapter_family": adapter.manifest.family,
-        "adapter_variant": adapter.manifest.variant,
+        "adapter_family": result_adapter_family,
+        "adapter_variant": result_adapter_variant,
         "jobs_count": len(jobs),
         "ignored_count": ignored_count,
         "error": None,
         "error_code": soft_error_code,
-        "extraction_attempts": [],
+        "extraction_attempts": dynamic_attempts,
     }
     if debug:
         result["html_sample"] = final_html[:60_000]

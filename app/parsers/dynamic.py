@@ -279,15 +279,15 @@ def _parse_api_json(html: str, url: str, company_name: str | None, confidence: f
 
 _CARD_PATTERNS = [
     # Generic job-card / opening / posting wrappers
-    r'<(?:li|div|article)[^>]*class="[^"]*(?:job[-_]?(?:card|item|post|listing|opening|row|result)|opening|posting)[^"]*"[^>]*>(.*?)</(?:li|div|article)>',
+    r"""<(?P<tag>li|div|article)[^>]*class=["'][^"']*(?:job[-_]?(?:card|item|post|listing|opening|row|result)|opening|posting)[^"']*["'][^>]*>(?P<body>.*?)</(?P=tag)>""",
 ]
 
 _TITLE_IN_CARD = [
-    r'<(?:h[1-6]|span|p)[^>]*class="[^"]*(?:title|name|position)[^"]*"[^>]*>(.*?)</(?:h[1-6]|span|p)>',
+    r"""<(?:h[1-6]|span|p)[^>]*class=["'][^"']*(?:title|name|position|role)[^"']*["'][^>]*>(.*?)</(?:h[1-6]|span|p)>""",
     r'<(?:h[1-6])[^>]*>(.*?)</h[1-6]>',
 ]
-_LINK_IN_CARD = r'href="([^"]+)"'
-_LOC_IN_CARD = r'<(?:span|p|div)[^>]*class="[^"]*(?:location|city|region)[^"]*"[^>]*>(.*?)</(?:span|p|div)>'
+_LINK_IN_CARD = r"""href=["']([^"']+)["']"""
+_LOC_IN_CARD = r"""<(?:span|p|div)[^>]*class=["'][^"']*(?:location|city|region)[^"']*["'][^>]*>(.*?)</(?:span|p|div)>"""
 
 
 def _parse_job_cards(html: str, url: str, company_name: str | None, confidence: float) -> list[dict]:
@@ -295,7 +295,10 @@ def _parse_job_cards(html: str, url: str, company_name: str | None, confidence: 
     seen: set[str] = set()
 
     for card_pattern in _CARD_PATTERNS:
-        cards = re.findall(card_pattern, html, re.IGNORECASE | re.DOTALL)
+        cards = [
+            match.group("body")
+            for match in re.finditer(card_pattern, html, re.IGNORECASE | re.DOTALL)
+        ]
         if len(cards) < 2:
             continue
         for card_html in cards:
@@ -351,7 +354,7 @@ def _strip_tags(html_frag: str) -> str:
 # ── Strategy 5: Job-like anchors ──────────────────────────────────────────────
 
 _JOB_ANCHOR_PATTERN = re.compile(
-    r'<a[^>]*href="((?:https?://[^"]*)?(?:/[^"]*)?(?:job|career|position|opening|vacancy|requisition|apply)[^"]*)"[^>]*>(.*?)</a>',
+    r"""<a[^>]*href=["']((?:https?://[^"']*)?(?:/[^"']*)?(?:job|career|position|opening|vacancy|requisition|apply)[^"']*)["'][^>]*>(.*?)</a>""",
     re.IGNORECASE | re.DOTALL,
 )
 

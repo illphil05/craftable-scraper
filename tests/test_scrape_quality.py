@@ -79,6 +79,22 @@ def test_playwright_retry_is_depth_2():
     assert q["signals"]["used_fallback"] is True
 
 
+def test_dynamic_generic_fallback_is_depth_2():
+    q = _compute_scrape_quality(
+        _result(
+            method="playwright:generic:dynamic",
+            attempts=[
+                {"method": "playwright:generic:dynamic", "attempt": 1},
+                {"method": "dynamic:fallback_parser", "jobs": 2},
+            ],
+        ),
+        _adapter(0.01),
+    )
+    assert q["signals"]["fallback_depth"] == 2
+    assert q["signals"]["used_fallback"] is True
+    assert q["signals"]["parse_method"] == "playwright:generic:dynamic"
+
+
 def test_brightdata_is_depth_2():
     q = _compute_scrape_quality(
         _result(
