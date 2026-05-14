@@ -151,6 +151,8 @@ class ExtractionResult(TypedDict, total=False):
 
 async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8_000, request_id: str = "") -> bool:
     """Wait for the first selector in *selectors* that attaches to the DOM."""
+    if not selectors:
+        return False
     for selector in selectors:
         try:
             await page.wait_for_selector(selector, timeout=timeout, state="attached")
@@ -797,7 +799,7 @@ async def _scrape_attempt(
 
                 dynamic_jobs = parse_dynamic(final_html, url, company_name)
                 if not dynamic_jobs:
-                    log.warning("Dynamic parser returned 0 jobs for '%s' [%s]", url, request_id)
+                    log.info("Dynamic parser returned 0 jobs for '%s' [%s]", url, request_id)
                 if dynamic_jobs:
                     annotate_job = getattr(adapter, "annotate_job", None)
                     if callable(annotate_job):
