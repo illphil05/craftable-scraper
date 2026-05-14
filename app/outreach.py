@@ -96,7 +96,7 @@ def build_outreach_import_payload(
     for job in jobs:
         payload_jobs.append({
             **job,
-            "company_name": job.get("company_name") or company.get("name"),
+            "company_name": job.get("company_name") or company.get("name") or "Unknown",
             "source": "craftable_scraper",
             "discovered_at": job.get("discovered_at") or job.get("first_seen") or None,
             "source_url": job.get("url"),
