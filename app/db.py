@@ -810,18 +810,18 @@ async def save_jobs(company_id: str, scrape_id: str, jobs_data: list[dict]) -> d
             )
 
     # Deactivate jobs not seen in this scrape
-    closed_job_ids: list[str] = []
+    closed_job_ids: set[str] = set()
     for url_key, existing_job in existing_by_url.items():
         if url_key not in seen_urls:
             await db.execute("UPDATE jobs SET is_active = 0 WHERE id = ?", (existing_job["id"],))
-            closed_job_ids.append(existing_job["id"])
+            closed_job_ids.add(existing_job["id"])
     for hash_key, existing_job in existing_by_hash.items():
         if hash_key not in seen_hashes and not existing_job.get("url"):
             await db.execute("UPDATE jobs SET is_active = 0 WHERE id = ?", (existing_job["id"],))
-            closed_job_ids.append(existing_job["id"])
+            closed_job_ids.add(existing_job["id"])
 
     await db.commit()
-    return {"new": new_jobs, "changed": changed_jobs, "closed": closed_job_ids}
+    return {"new": new_jobs, "changed": changed_jobs, "closed": list(closed_job_ids)}
 
 
 async def list_jobs(
