@@ -13,7 +13,7 @@ class WorkdayAdapter(SiteAdapter):
         wait_selectors=("[data-automation-id='jobTitle']", "a[data-automation-id]"),
         supported_extraction_modes=("dom_list", "embedded_json"),
         fallback_order=10,
-        dom_markers=("data-automation-id", '"title"'),
+        dom_markers=("data-automation-id", "workdayjobs", "myworkday"),
         confidence_rules={"url_pattern": 0.95, "dom_marker": 0.02},
     )
     parser = staticmethod(parse)
