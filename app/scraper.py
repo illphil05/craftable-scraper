@@ -149,14 +149,16 @@ class ExtractionResult(TypedDict, total=False):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8_000) -> bool:
+async def _wait_for_any_selector(page, selectors: list[str], *, timeout: int = 8_000, request_id: str = "") -> bool:
     """Wait for the first selector in *selectors* that attaches to the DOM."""
     for selector in selectors:
         try:
             await page.wait_for_selector(selector, timeout=timeout, state="attached")
             return True
-        except Exception:
+        except Exception as exc:
+            log.debug("Selector '%s' not found within %dms [%s]: %s", selector, timeout, request_id, exc)
             continue
+    log.warning("No selectors matched on page [%s]: tried %s", request_id, selectors)
     return False
 
 
@@ -745,7 +747,7 @@ async def _scrape_attempt(
                     await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
             # Wait for ATS-specific selector
-            await _wait_for_any_selector(page, selectors)
+            await _wait_for_any_selector(page, selectors, request_id=request_id)
 
             # Scroll to trigger lazy-loaded content
             try:
@@ -767,7 +769,7 @@ async def _scrape_attempt(
                 selectors,
                 list(resolved_adapter.manifest.wait_selectors),
             )
-            await _wait_for_any_selector(page, resolved_selectors)
+            await _wait_for_any_selector(page, resolved_selectors, request_id=request_id)
             await page.wait_for_timeout(500)
             resolved_html = await page.content()
             adapter = resolved_adapter
@@ -794,6 +796,8 @@ async def _scrape_attempt(
                 from app.parsers.dynamic import parse_dynamic
 
                 dynamic_jobs = parse_dynamic(final_html, url, company_name)
+                if not dynamic_jobs:
+                    log.warning("Dynamic parser returned 0 jobs for '%s' [%s]", url, request_id)
                 if dynamic_jobs:
                     annotate_job = getattr(adapter, "annotate_job", None)
                     if callable(annotate_job):
