@@ -42,4 +42,5 @@ async def botasaurus_scrape(
         "adapter_variant": adapter.manifest.variant,
         "jobs_count": len(jobs),
         "error": None,
+        "error_code": None,
     }

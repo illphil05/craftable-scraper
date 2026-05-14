@@ -106,7 +106,10 @@ async def _run_scheduled_scrape() -> None:
                     await push_to_outreach(payload)
             success += 1
         except Exception as exc:
-            log.error("Scheduled scrape failed for '%s': %s", url, exc)
+            log.error(
+                "Scheduled scrape failed for company_id=%s url='%s': %s",
+                company.get("id"), url, exc, exc_info=True,
+            )
             fail += 1
 
     log.info(
