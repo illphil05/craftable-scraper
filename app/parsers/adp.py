@@ -24,6 +24,9 @@ _NAV_RE = re.compile(
     r'sort|all jobs|view all|load more|apply now|submit|back)\s*$',
     re.IGNORECASE,
 )
+_TITLE_CLS = re.compile(r'job.?title|jobTitle|position.?title', re.I)
+_LOC_CLS = re.compile(r'job.?location|jobLocation|position.?location', re.I)
+_CARD_CLS = re.compile(r'job.?card|jobCard|job.?item|jobItem|job.?row|jobRow|job.?listing', re.I)
 
 
 @register_parser("workforcenow.adp.com", [
@@ -50,10 +53,6 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         return jobs
 
     # Strategy 2: rendered job cards — ADP uses class names with camelCase 'job' prefixes
-    _TITLE_CLS = re.compile(r'job.?title|jobTitle|position.?title', re.I)
-    _LOC_CLS = re.compile(r'job.?location|jobLocation|position.?location', re.I)
-    _CARD_CLS = re.compile(r'job.?card|jobCard|job.?item|jobItem|job.?row|jobRow|job.?listing', re.I)
-
     for card in soup.find_all(True, class_=_CARD_CLS):
         title_el = card.find(True, class_=_TITLE_CLS)
         loc_el = card.find(True, class_=_LOC_CLS)

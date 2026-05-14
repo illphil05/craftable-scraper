@@ -27,6 +27,9 @@ _NAV_RE = re.compile(
     r'filter|all jobs|view all|apply now|submit)\s*$',
     re.IGNORECASE,
 )
+_CARD_CLS = re.compile(r'opening|job.posting|harri.job|job.card|position.card', re.I)
+_TITLE_CLS = re.compile(r'job.title|opening.title|position.title|role.title', re.I)
+_LOC_CLS = re.compile(r'location|address|city', re.I)
 
 
 @register_parser("harri.com", [
@@ -62,10 +65,6 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         return jobs
 
     # Strategy 2: rendered job cards
-    _CARD_CLS = re.compile(r'opening|job.posting|harri.job|job.card|position.card', re.I)
-    _TITLE_CLS = re.compile(r'job.title|opening.title|position.title|role.title', re.I)
-    _LOC_CLS = re.compile(r'location|address|city', re.I)
-
     for card in soup.find_all(True, class_=_CARD_CLS):
         title_el = card.find(True, class_=_TITLE_CLS) or card.find(["h2", "h3", "h4", "strong"])
         link = card.find("a", href=True)
@@ -74,7 +73,7 @@ def parse(html: str, url: str, company_name: str | None = None) -> list[dict]:
         title = (title_el or link).get_text(separator=" ", strip=True)
         loc_el = card.find(True, class_=_LOC_CLS)
         loc = loc_el.get_text(strip=True) if loc_el else None
-        href = link["href"] if link else url
+        href = link["href"] if link else None
         _add(jobs, seen, title, href, url, company_name, location=loc)
     if jobs:
         return jobs
